@@ -72,7 +72,10 @@ with tab1:
 
     best_stock = df.loc[df["undervaluation_%"].idxmax()] if not df.empty else None
     if best_stock is not None:
-        st.success(f"🏆 Best undervalued stock currently: **{best_stock.symbol}** with **{best_stock.undervaluation_%}%** undervaluation.")
+        st.success(
+    f"🏆 Best undervalued stock currently: **{best_stock.symbol}** with **{best_stock['undervaluation_%']}%** undervaluation."
+)
+
 
 # ---------------------- SINGLE STOCK ----------------------
 with tab2:
