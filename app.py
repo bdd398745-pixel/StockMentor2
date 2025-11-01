@@ -30,16 +30,31 @@ def get_stock_data(symbol):
     try:
         ticker = yf.Ticker(symbol + ".NS")
         info = ticker.info
+
+        current_price = info.get("currentPrice")
+        pe_ratio = info.get("trailingPE")
+        eps = info.get("trailingEps")
+        target_mean = info.get("targetMeanPrice")
+
+        # If Yahoo targetMeanPrice not available, calculate fair value manually
+        if target_mean:
+            fair_value = target_mean
+        elif pe_ratio and eps:
+            fair_value = pe_ratio * eps
+        else:
+            fair_value = None
+
         return {
             "symbol": symbol,
-            "current_price": info.get("currentPrice"),
-            "fair_value": info.get("targetMeanPrice", None),
-            "pe_ratio": info.get("trailingPE", None),
-            "roe": info.get("returnOnEquity", None),
-            "de_ratio": info.get("debtToEquity", None)
+            "current_price": current_price,
+            "fair_value": fair_value,
+            "pe_ratio": pe_ratio,
+            "roe": info.get("returnOnEquity"),
+            "de_ratio": info.get("debtToEquity"),
         }
-    except:
+    except Exception as e:
         return None
+
 
 def calc_undervaluation(row):
     if row["fair_value"] and row["current_price"]:
