@@ -562,7 +562,7 @@ with tab6:
 
             # Top picks summary
             st.subheader("🏆 Top 5 Picks")
-            st.table(df_sorted.head(5)[["Symbol", "Rec", "Score", "Underv%", "Buy Below", "Fair Value"]])
+            st.table(df_sorted.head(5)[["Symbol","LTP", "Rec", "Score", "Underv%", "Buy Below", "Fair Value"]])
 
             # Download option
             csv = df_sorted.to_csv(index=False).encode('utf-8')
