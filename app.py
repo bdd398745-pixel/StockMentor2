@@ -255,3 +255,151 @@ with tab1:
 # Single Stock, Portfolio, Alerts, Watchlist (same as before)
 # -------------------------
 # (You can retain the same code blocks from your previous version here unchanged)
+# -------------------------
+# TAB: Single Stock
+# -------------------------
+with tab2:
+    st.header("🔎 Single Stock Detail")
+    watchlist = load_watchlist()
+    sel = st.selectbox("Select stock", watchlist) if watchlist else st.text_input("Enter symbol (e.g., RELIANCE)")
+    if sel:
+        info, hist = fetch_info_and_history(sel)
+        if info.get("error"):
+            st.error("Data fetch error: " + info.get("error"))
+        else:
+            ltp = safe_get(info, "currentPrice", np.nan)
+            fv, method = estimate_fair_value(info)
+            rec = rule_based_recommendation(info, fv, ltp)
+            buy, sell = compute_buy_sell(fv)
+
+            c1, c2, c3 = st.columns(3)
+            c1.metric("LTP", f"₹{round(ltp,2) if isinstance(ltp,(int,float)) and not math.isnan(ltp) else '-'}")
+            c2.metric("Fair Value", f"₹{fv}" if fv else "-")
+            c3.metric("Recommendation", rec.get("recommendation"))
+
+            st.write("**Quick fundamentals**")
+            fund = {
+                "PE": safe_get(info, "trailingPE"),
+                "EPS (TTM)": safe_get(info, "trailingEps"),
+                "ROE": safe_get(info, "returnOnEquity"),
+                "Debt/Equity": safe_get(info, "debtToEquity"),
+                "Market Cap": safe_get(info, "marketCap"),
+            }
+            st.json(fund)
+
+            st.write("**Valuation details**")
+            st.write(f"- Valuation method: {method}")
+            st.write(f"- Buy below: ₹{buy}" if buy else "-")
+            st.write(f"- Sell above: ₹{sell}" if sell else "-")
+            st.write(f"- Undervaluation %: {rec.get('undervaluation_%')}")
+
+            st.write("**Rule-based reasons**")
+            st.write(", ".join(rec.get("reasons") or []))
+
+            st.write("**5-year price chart**")
+            if hist is not None and not hist.empty:
+                st.line_chart(hist["Close"])
+            else:
+                st.info("No historical price data available.")
+
+# -------------------------
+# TAB: Portfolio
+# -------------------------
+with tab3:
+    st.header("💼 Portfolio Tracker")
+    st.markdown("Upload CSV (columns: symbol, buy_price, quantity). Symbols should be without '.NS' (e.g., RELIANCE).")
+    uploaded = st.file_uploader("Upload portfolio CSV", type=["csv"])
+    if uploaded:
+        try:
+            pf = pd.read_csv(uploaded)
+            pf_columns = [c.lower() for c in pf.columns]
+            if not set(["symbol","buy_price","quantity"]).issubset(set(pf_columns)):
+                st.error("CSV must contain columns: symbol, buy_price, quantity (case-insensitive)")
+            else:
+                # normalize
+                pf.columns = pf_columns
+                rows = []
+                for _, r in pf.iterrows():
+                    sym = str(r["symbol"]).strip().upper()
+                    buy = float(r["buy_price"])
+                    qty = float(r["quantity"])
+                    info, _ = fetch_info_and_history(sym)
+                    ltp = safe_get(info, "currentPrice", np.nan)
+                    current_value = round((ltp * qty), 2) if isinstance(ltp,(int,float)) and not math.isnan(ltp) else None
+                    invested = round(buy*qty,2)
+                    pl = round((current_value - invested),2) if current_value is not None else None
+                    pl_pct = round((pl/invested*100),2) if pl is not None and invested !=0 else None
+                    rows.append({
+                        "symbol": sym,
+                        "buy_price": buy,
+                        "quantity": qty,
+                        "ltp": ltp,
+                        "current_value": current_value,
+                        "invested": invested,
+                        "P/L": pl,
+                        "P/L%": pl_pct
+                    })
+                out = pd.DataFrame(rows)
+                st.dataframe(out, use_container_width=True)
+                total_pl = out["P/L"].sum(skipna=True)
+                st.metric("Total P/L (₹)", f"{total_pl:,.2f}")
+        except Exception as e:
+            st.error("Error reading portfolio: " + str(e))
+
+# -------------------------
+# TAB: Alerts (Email)
+# -------------------------
+with tab4:
+    st.header("📣 Email Alerts (manual send)")
+    st.write("This sends immediate email(s). For Gmail, use smtp.gmail.com port 587 and an App Password.")
+    with st.form("alert_form"):
+        smtp_host = st.text_input("SMTP host", value="smtp.gmail.com")
+        smtp_port = st.number_input("SMTP port", value=587)
+        smtp_user = st.text_input("SMTP username (email)")
+        smtp_pass = st.text_input("SMTP password (app password recommended)", type="password")
+        sender = st.text_input("From (optional)", value=smtp_user)
+        recipients = st.text_input("Recipients (comma separated)")
+        underv_threshold = st.number_input("Send alerts when undervaluation% >= ", value=10)
+        submit_alert = st.form_submit_button("Send Alerts Now")
+    if submit_alert:
+        if not smtp_user or not smtp_pass or not recipients:
+            st.error("Provide SMTP username/password and recipient(s).")
+        else:
+            results = []
+            wl = load_watchlist()
+            for sym in wl:
+                info, _ = fetch_info_and_history(sym)
+                if info.get("error"):
+                    continue
+                ltp = safe_get(info, "currentPrice", np.nan)
+                fv, method = estimate_fair_value(info)
+                underv = None
+                if fv and ltp and fv>0:
+                    underv = round(((fv - ltp)/fv)*100,2)
+                if isinstance(underv, (int,float)) and underv >= underv_threshold:
+                    results.append(f"{sym}: LTP ₹{ltp} | Fair ₹{fv} ({method}) | Underval {underv}%")
+            if not results:
+                st.info("No stocks passed the threshold.")
+            else:
+                body = "StockMentor alerts:\n\n" + "\n".join(results) + f"\n\nGenerated {datetime.now().strftime('%Y-%m-%d %H:%M')}"
+                ok, msg = send_email_smtp(smtp_host, int(smtp_port), smtp_user, smtp_pass, sender, recipients, "StockMentor Alerts", body)
+                if ok:
+                    st.success("Alerts sent successfully.")
+                else:
+                    st.error("Failed to send alerts: " + msg)
+
+# -------------------------
+# TAB: Watchlist Editor
+# -------------------------
+with tab5:
+    st.header("🧾 Watchlist Editor")
+    st.write("Edit your watchlist (one symbol per line). Use NSE tickers (without .NS).")
+    current = load_watchlist()
+    new_txt = st.text_area("Watchlist", value="\n".join(current), height=300)
+    if st.button("💾 Save watchlist"):
+        new_list = [s.strip().upper() for s in new_txt.splitlines() if s.strip()]
+        ok, msg = save_watchlist(new_list)
+        if ok:
+            st.success("Watchlist saved. Reload Dashboard to analyze.")
+        else:
+            st.error("Save failed: " + msg)
