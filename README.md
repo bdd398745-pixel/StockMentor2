@@ -1,57 +1,26 @@
-# 📈 StockMentor – Long-Term Stock Advisor (India)
+# 📈 StockMentor — Long-Term Investment Assistant (India)
 
-Your personal **AI-powered stock advisor** built for **long-term Indian investors** 🇮🇳  
-This app helps you analyze your watchlist, identify undervalued stocks, track portfolio profit/loss, and receive AI insights on when to **Buy**, **Hold**, or **Avoid** stocks.
+This is your personal **AI-inspired long-term investment dashboard** for Indian stocks.  
+It analyzes your custom watchlist, estimates fair value, and identifies undervalued opportunities.
 
 ---
 
 ## 🚀 Features
-
-✅ **Watchlist Overview**
-- View your chosen stock list with live prices and fundamental data.
-- Automatically calculates **undervaluation %**, **P/E**, **ROE**, and **Debt-Equity** ratio.
-- Highlights the **best undervalued stock** in your list.
-
-✅ **Single Stock View**
-- View all financial details for any one stock (INFY, TCS, RELIANCE, etc.).
-- Pulls real-time data from Yahoo Finance.
-
-✅ **Trend Analysis**
-- Visualize stock price history (6M, 1Y, 2Y).
-- Understand long-term momentum and price movement trends.
-
-✅ **AI Mentor Insights**
-- Generates smart opinions:
-  - 💚 **Strong Buy** – undervalued and fundamentally sound  
-  - 🟡 **Hold** – near fair value  
-  - 🔴 **Avoid / Overvalued** – priced too high or weak fundamentals
-
-✅ **Portfolio Tracker**
-- Upload your portfolio (symbol, buy_price, quantity).
-- Automatically calculates total investment, current value, and P/L%.
-- Shows overall portfolio profit/loss in ₹.
-
-✅ **Runs Free on Streamlit Cloud**
-- No API keys required.
-- Fetches stock data directly from Yahoo Finance (India NSE).
+- Track **NSE-listed stocks** (uses `.NS` suffix)
+- Fetches financial data from **Yahoo Finance**
+- Calculates:
+  - Current Price
+  - Estimated Fair Value
+  - Undervaluation %
+  - PE and PEG Ratios
+- Allows you to **edit your watchlist** directly from the dashboard
+- Clean Streamlit interface, fully private to you
 
 ---
 
-## 🧠 Tech Stack
+## ⚙️ Setup Instructions
 
-- **Language:** Python 🐍  
-- **Framework:** Streamlit 🌐  
-- **Data Source:** Yahoo Finance (via `yfinance`)  
-- **Libraries:**  
-  - `pandas` – data processing  
-  - `yfinance` – stock data  
-  - `streamlit` – front-end app
-
----
-
-## ⚙️ Installation
-
-### 1️⃣ Clone the repository
+### 1️⃣ Clone the Repository
 ```bash
-git clone https://github.com/<your-username>/StockMentor.git
+git clone https://github.com/YOUR_USERNAME/StockMentor.git
 cd StockMentor
