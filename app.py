@@ -1,149 +1,120 @@
-# app.py
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import datetime as dt
+import numpy as np
+from datetime import datetime
 
-st.set_page_config(page_title="StockMentor – Long-Term Stock Advisor (India)", page_icon="📈", layout="wide")
+# -----------------------------------------------------------
+# 1️⃣ PAGE CONFIGURATION
+# -----------------------------------------------------------
+st.set_page_config(page_title="StockMentor", page_icon="📈", layout="wide")
 
-# ---------------------- HEADER ----------------------
-st.title("📈 StockMentor – Long-Term Stock Advisor (India)")
-st.markdown("Your personal AI-powered long-term stock analysis app 🇮🇳")
+st.title("📈 StockMentor — Long-Term Stock Insight (India)")
+st.markdown("AI-powered insights for **long-term Indian stock investments** — using your personal watchlist.")
 
-# ---------------------- LOAD WATCHLIST ----------------------
-@st.cache_data
+# -----------------------------------------------------------
+# 2️⃣ LOAD WATCHLIST FROM CSV
+# -----------------------------------------------------------
 def load_watchlist():
     try:
-        df = pd.read_csv("watchlist.csv")
-        return df
+        return pd.read_csv("watchlist.csv", header=None)[0].tolist()
     except Exception as e:
-        st.error("⚠️ Could not load watchlist.csv. Please ensure it’s uploaded.")
-        return pd.DataFrame(columns=["symbol"])
+        st.error(f"❌ Failed to load watchlist: {e}")
+        return []
 
-watchlist = pd.read_csv("watchlist.csv", header=None)[0].tolist()
-if watchlist.empty:
-    st.stop()
-
-# ---------------------- FETCH FUNDAMENTAL DATA ----------------------
-@st.cache_data
-def get_stock_data(symbol):
+def save_watchlist(stocks):
     try:
-        ticker = yf.Ticker(symbol + ".NS")
-        info = ticker.info
+        pd.DataFrame(stocks).to_csv("watchlist.csv", index=False, header=False)
+        st.success("✅ Watchlist updated successfully!")
+    except Exception as e:
+        st.error(f"❌ Failed to save watchlist: {e}")
 
-        current_price = info.get("currentPrice")
-        pe_ratio = info.get("trailingPE")
-        eps = info.get("trailingEps")
-        target_mean = info.get("targetMeanPrice")
+watchlist = load_watchlist()
 
-        # If Yahoo targetMeanPrice not available, calculate fair value manually
-        if target_mean:
+# -----------------------------------------------------------
+# 3️⃣ EDIT WATCHLIST (OPTIONAL)
+# -----------------------------------------------------------
+with st.expander("📝 Edit My Watchlist"):
+    new_text = st.text_area("Enter stock symbols (one per line, use .NS for NSE stocks):", "\n".join(watchlist))
+    if st.button("💾 Save Watchlist"):
+        updated_list = [x.strip() for x in new_text.split("\n") if x.strip()]
+        save_watchlist(updated_list)
+        st.rerun()
+
+# -----------------------------------------------------------
+# 4️⃣ HELPER FUNCTIONS
+# -----------------------------------------------------------
+@st.cache_data(ttl=3600)
+def get_stock_data(ticker):
+    try:
+        stock = yf.Ticker(ticker)
+        info = stock.info
+
+        # Basic details
+        current_price = info.get("currentPrice", np.nan)
+        target_mean = info.get("targetMeanPrice", np.nan)
+        trailing_pe = info.get("trailingPE", np.nan)
+        forward_pe = info.get("forwardPE", np.nan)
+        book_value = info.get("bookValue", np.nan)
+        eps = info.get("trailingEps", np.nan)
+        peg = info.get("pegRatio", np.nan)
+
+        # Fair value calculation (simple estimate)
+        if eps and (peg and peg > 0):
+            fair_value = eps * peg * 10
+        elif target_mean:
             fair_value = target_mean
-        elif pe_ratio and eps:
-            fair_value = pe_ratio * eps
+        elif book_value and trailing_pe:
+            fair_value = book_value * trailing_pe
         else:
-            fair_value = None
+            fair_value = np.nan
+
+        if fair_value and current_price:
+            undervaluation = round((fair_value - current_price) / fair_value * 100, 2)
+        else:
+            undervaluation = np.nan
 
         return {
-            "symbol": symbol,
-            "current_price": current_price,
-            "fair_value": fair_value,
-            "pe_ratio": pe_ratio,
-            "roe": info.get("returnOnEquity"),
-            "de_ratio": info.get("debtToEquity"),
+            "Symbol": ticker,
+            "Price": current_price,
+            "Fair Value": round(fair_value, 2) if fair_value else np.nan,
+            "Undervaluation %": undervaluation,
+            "PE Ratio": trailing_pe,
+            "PEG Ratio": peg,
         }
+
     except Exception as e:
-        return None
+        return {"Symbol": ticker, "Error": str(e)}
 
+# -----------------------------------------------------------
+# 5️⃣ FETCH DATA FOR ALL WATCHLIST STOCKS
+# -----------------------------------------------------------
+st.subheader("📊 Watchlist Insights")
 
-def calc_undervaluation(row):
-    if row["fair_value"] and row["current_price"]:
-        return round(((row["fair_value"] - row["current_price"]) / row["fair_value"]) * 100, 1)
-    return None
+if st.button("🔍 Analyze Now"):
+    data = []
+    with st.spinner("Fetching stock data..."):
+        for stock in watchlist:
+            result = get_stock_data(stock)
+            data.append(result)
 
-# ---------------------- BUILD DATAFRAME ----------------------
-data_list = []
-for s in watchlist["symbol"]:
-    d = get_stock_data(s)
-    if d:
-        data_list.append(d)
+    df = pd.DataFrame(data)
 
-df = pd.DataFrame(data_list)
-df["undervaluation_%"] = df.apply(calc_undervaluation, axis=1)
-
-# ---------------------- TABS ----------------------
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
-    "📋 Watchlist Overview",
-    "📊 Single Stock",
-    "📈 Trend Analysis",
-    "💬 AI Mentor Insights",
-    "💼 Portfolio Tracker"
-])
-
-# ---------------------- WATCHLIST OVERVIEW ----------------------
-with tab1:
-    st.header("📋 Your Watchlist Overview")
-    st.dataframe(df, use_container_width=True)
-
-    best_stock = df.loc[df["undervaluation_%"].idxmax()] if not df.empty else None
-    if best_stock is not None:
-        st.success(
-    f"🏆 Best undervalued stock currently: **{best_stock.symbol}** with **{best_stock['undervaluation_%']}%** undervaluation."
-)
-
-
-# ---------------------- SINGLE STOCK ----------------------
-with tab2:
-    st.header("🔍 Single Stock View")
-    stock = st.selectbox("Select stock to analyze", watchlist["symbol"])
-
-    if stock:
-        st.subheader(f"📊 {stock} Overview")
-        info = get_stock_data(stock)
-        if info:
-            st.json(info)
-
-# ---------------------- TREND ANALYSIS ----------------------
-with tab3:
-    st.header("📈 Price Trend Analysis")
-    stock = st.selectbox("Select stock for trend chart", watchlist["symbol"], key="trend")
-    period = st.selectbox("Select period", ["6mo", "1y", "2y"], key="period")
-    data = yf.download(stock + ".NS", period=period)
-    if not data.empty:
-        st.line_chart(data["Close"])
-        st.caption(f"Price trend for {stock} over last {period}")
-
-# ---------------------- AI MENTOR INSIGHTS ----------------------
-def generate_ai_opinion(row):
-    if row["undervaluation_%"] and row["undervaluation_%"] > 10 and row["pe_ratio"] and row["pe_ratio"] < 25:
-        return "💚 Strong Buy – undervalued and reasonably priced."
-    elif row["undervaluation_%"] and -5 < row["undervaluation_%"] <= 10:
-        return "🟡 Hold – near fair value."
+    # Clean and display
+    if not df.empty:
+        st.dataframe(df, use_container_width=True)
+        undervalued = df[df["Undervaluation %"] > 0].sort_values("Undervaluation %", ascending=False)
+        if not undervalued.empty:
+            best_stock = undervalued.iloc[0]
+            st.success(f"🏆 **Best undervalued stock now:** {best_stock['Symbol']} — {best_stock['Undervaluation %']}% undervalued.")
     else:
-        return "🔴 Avoid / Overvalued."
+        st.warning("No valid stock data found.")
 
-with tab4:
-    st.header("💬 AI Mentor Insights")
-    df["AI_Opinion"] = df.apply(generate_ai_opinion, axis=1)
-    st.dataframe(df[["symbol", "undervaluation_%", "pe_ratio", "roe", "AI_Opinion"]], use_container_width=True)
+else:
+    st.info("Click **Analyze Now** to fetch the latest stock insights.")
 
-# ---------------------- PORTFOLIO TRACKER ----------------------
-with tab5:
-    st.header("💼 Portfolio Tracker")
-    st.caption("Upload your portfolio CSV with columns: symbol, buy_price, quantity")
-    uploaded = st.file_uploader("Upload Portfolio", type="csv")
-
-    if uploaded:
-        pf = pd.read_csv(uploaded)
-        merged = pd.merge(pf, df[["symbol", "current_price"]], on="symbol", how="left")
-        merged["current_value"] = merged["current_price"] * merged["quantity"]
-        merged["invested_value"] = merged["buy_price"] * merged["quantity"]
-        merged["profit_loss"] = merged["current_value"] - merged["invested_value"]
-        merged["profit_%"] = (merged["profit_loss"] / merged["invested_value"]) * 100
-        st.dataframe(merged, use_container_width=True)
-        total = merged["profit_loss"].sum()
-        st.metric("💰 Total Portfolio P/L", f"{total:,.2f} ₹")
-
-# ---------------------- FOOTER ----------------------
+# -----------------------------------------------------------
+# 6️⃣ FOOTER
+# -----------------------------------------------------------
 st.markdown("---")
-st.caption("Created by Biswanath • Powered by Streamlit + Yahoo Finance API (Free)")
+st.caption(f"© {datetime.now().year} StockMentor — Personal Investment Assistant by Biswanath 🧠")
