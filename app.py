@@ -20,7 +20,7 @@ def load_watchlist():
         st.error("⚠️ Could not load watchlist.csv. Please ensure it’s uploaded.")
         return pd.DataFrame(columns=["symbol"])
 
-watchlist = load_watchlist()
+watchlist = pd.read_csv("watchlist.csv", header=None)[0].tolist()
 if watchlist.empty:
     st.stop()
 
