@@ -2,4 +2,4 @@ streamlit
 pandas
 yfinance
 numpy
-openai  # optional: only needed if you want OpenAI integration
+openai>=1.0.0
