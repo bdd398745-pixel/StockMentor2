@@ -256,51 +256,127 @@ with tab1:
 # -------------------------
 # (You can retain the same code blocks from your previous version here unchanged)
 # -------------------------
-# TAB: Single Stock
+# -------------------------
+# 🔎 SINGLE STOCK TAB
 # -------------------------
 with tab2:
-    st.header("🔎 Single Stock Detail")
-    watchlist = load_watchlist()
-    sel = st.selectbox("Select stock", watchlist) if watchlist else st.text_input("Enter symbol (e.g., RELIANCE)")
-    if sel:
-        info, hist = fetch_info_and_history(sel)
-        if info.get("error"):
-            st.error("Data fetch error: " + info.get("error"))
-        else:
-            ltp = safe_get(info, "currentPrice", np.nan)
-            fv, method = estimate_fair_value(info)
-            rec = rule_based_recommendation(info, fv, ltp)
-            buy, sell = compute_buy_sell(fv)
+    st.header("🔎 Single Stock Analysis")
+    st.caption("Analyze any Indian stock — rule-based insights with valuation, quality, growth & trend analysis.")
 
-            c1, c2, c3 = st.columns(3)
-            c1.metric("LTP", f"₹{round(ltp,2) if isinstance(ltp,(int,float)) and not math.isnan(ltp) else '-'}")
-            c2.metric("Fair Value", f"₹{fv}" if fv else "-")
-            c3.metric("Recommendation", rec.get("recommendation"))
+    symbol_input = st.text_input("Enter NSE symbol (e.g. HDFCBANK, TCS, RELIANCE):").strip().upper()
 
-            st.write("**Quick fundamentals**")
-            fund = {
-                "PE": safe_get(info, "trailingPE"),
-                "EPS (TTM)": safe_get(info, "trailingEps"),
-                "ROE": safe_get(info, "returnOnEquity"),
-                "Debt/Equity": safe_get(info, "debtToEquity"),
-                "Market Cap": safe_get(info, "marketCap"),
-            }
-            st.json(fund)
-
-            st.write("**Valuation details**")
-            st.write(f"- Valuation method: {method}")
-            st.write(f"- Buy below: ₹{buy}" if buy else "-")
-            st.write(f"- Sell above: ₹{sell}" if sell else "-")
-            st.write(f"- Undervaluation %: {rec.get('undervaluation_%')}")
-
-            st.write("**Rule-based reasons**")
-            st.write(", ".join(rec.get("reasons") or []))
-
-            st.write("**5-year price chart**")
-            if hist is not None and not hist.empty:
-                st.line_chart(hist["Close"])
+    if symbol_input:
+        with st.spinner(f"Fetching data for {symbol_input}..."):
+            info, hist = fetch_info_and_history(symbol_input)
+            if info.get("error"):
+                st.error(info["error"])
+            elif hist.empty:
+                st.warning("No price data found.")
             else:
-                st.info("No historical price data available.")
+                ltp = safe_get(info, "currentPrice", np.nan)
+                fv, fv_method = estimate_fair_value(info)
+                rec = rule_based_recommendation(info, fv, ltp)
+                buy, sell = compute_buy_sell(fv)
+                roe = safe_get(info, "returnOnEquity", np.nan)
+                if roe and abs(roe) > 1: roe /= 100
+                de = safe_get(info, "debtToEquity", np.nan)
+                growth = safe_get(info, "earningsQuarterlyGrowth", np.nan)
+                market_cap = safe_get(info, "marketCap", np.nan)
+                pe = safe_get(info, "trailingPE", np.nan)
+                pb = safe_get(info, "priceToBook", np.nan)
+                dy = safe_get(info, "dividendYield", np.nan)
+                if dy and abs(dy) > 1: dy *= 100
+
+                underval = rec["undervaluation_%"]
+                cagr = None
+                if fv and ltp and fv > 0 and ltp > 0:
+                    try:
+                        cagr = (fv/ltp)**(1/3) - 1
+                        cagr = round(cagr*100, 2)
+                    except:
+                        cagr = None
+
+                # --- Overview ---
+                st.subheader("📘 Overview")
+                c1, c2, c3 = st.columns(3)
+                c1.metric("LTP (₹)", f"{ltp:,.2f}")
+                c2.metric("Fair Value (₹)", f"{fv:,.2f}" if fv else "—", fv_method)
+                if underval is not None:
+                    c3.metric("Undervaluation %", f"{underval:.2f}%", delta_color="inverse")
+
+                c1, c2, c3, c4 = st.columns(4)
+                c1.metric("Market Cap", f"{market_cap/1e9:,.1f} B" if market_cap else "—")
+                c2.metric("PE", f"{pe:.1f}" if pe else "—")
+                c3.metric("PB", f"{pb:.1f}" if pb else "—")
+                c4.metric("Div Yield", f"{dy:.2f}%" if dy else "—")
+
+                # --- Valuation Zone ---
+                st.subheader("💰 Valuation Zone")
+                if fv and ltp:
+                    underval_pct = (fv - ltp)/fv * 100
+                    progress_color = "green" if underval_pct > 0 else "red"
+                    st.progress(min(max((100 - underval_pct), 0), 100)/100)
+                    st.markdown(
+                        f"**Fair Value:** ₹{fv:.2f} &nbsp;|&nbsp; **Current Price:** ₹{ltp:.2f} "
+                        f"&nbsp;→&nbsp; **Undervaluation:** {underval_pct:.2f}%"
+                    )
+                st.write(f"**Buy Below:** ₹{buy} &nbsp;&nbsp; **Sell Above:** ₹{sell}")
+
+                # --- Fundamental Strength ---
+                st.subheader("📊 Fundamental Strength")
+                strength_data = {
+                    "Metric": ["ROE", "Debt/Equity", "Earnings Growth", "PE"],
+                    "Value": [roe, de, growth, pe],
+                    "Interpretation": [
+                        "High profitability" if roe and roe >= 0.15 else "Low ROE" if roe else "N/A",
+                        "Low leverage" if de and de < 0.5 else "Moderate" if de and de < 1.5 else "High debt",
+                        "Strong growth" if growth and growth >= 0.2 else "Stable" if growth and growth >= 0 else "Decline",
+                        "Reasonable valuation" if pe and pe < 25 else "Expensive" if pe else "N/A",
+                    ],
+                }
+                st.table(pd.DataFrame(strength_data))
+
+                # --- Trend Chart ---
+                st.subheader("📈 Price Trend (1 Year)")
+                try:
+                    hist = hist.tail(252)  # approx 1 year
+                    hist["50MA"] = hist["Close"].rolling(50).mean()
+                    hist["200MA"] = hist["Close"].rolling(200).mean()
+                    st.line_chart(hist[["Close", "50MA", "200MA"]])
+                except Exception as e:
+                    st.warning(f"Unable to render chart: {e}")
+
+                # --- Scorecard ---
+                st.subheader("⭐ Investment Scorecard")
+                factors = {
+                    "Quality (ROE)": min(max((roe or 0)/0.25*5, 0), 5),
+                    "Growth": min(max((growth or 0)/0.2*5, 0), 5),
+                    "Valuation": 5 if underval and underval >= 25 else 4 if underval and underval >= 10 else 3 if underval and underval >= 3 else 2,
+                    "Risk (Low better)": 5 if de and de <= 0.5 else 3 if de and de <= 1.5 else 1,
+                }
+                score_df = pd.DataFrame({
+                    "Factor": factors.keys(),
+                    "Stars (out of 5)": [f"{round(v):.0f} ⭐" for v in factors.values()]
+                })
+                st.table(score_df)
+
+                # --- Interpretation ---
+                st.subheader("🧠 Interpretation")
+                interp = []
+                interp.append(f"- Company shows **{'strong' if roe and roe>=0.15 else 'moderate' if roe and roe>0 else 'weak'} profitability** (ROE {roe*100:.1f}%)." if roe else "- ROE data unavailable.")
+                interp.append(f"- Debt level is **{'low' if de and de<=0.5 else 'moderate' if de and de<=1.5 else 'high'}** (D/E {de:.2f})." if de else "- D/E data unavailable.")
+                if growth and growth >= 0.2:
+                    interp.append("- Earnings growth is strong; profit momentum intact.")
+                elif growth and growth >= 0.05:
+                    interp.append("- Moderate earnings growth; stable performance.")
+                else:
+                    interp.append("- Weak or negative earnings trend.")
+                if underval and underval > 0:
+                    interp.append(f"- Currently **undervalued by {underval:.1f}%** vs estimated fair value ₹{fv:.2f}.")
+                if cagr:
+                    interp.append(f"- Expected 3-year CAGR ≈ **{cagr:.1f}%** based on valuation gap.")
+                interp.append(f"- Recommendation: **{rec['recommendation']}** based on total score {rec['score']}/10.")
+                st.markdown("\n".join(interp))
 
 # -------------------------
 # TAB: Portfolio
