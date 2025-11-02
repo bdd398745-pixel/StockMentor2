@@ -1,3 +1,5 @@
 streamlit
-yfinance
 pandas
+yfinance
+numpy
+openai  # optional: only needed if you want OpenAI integration
