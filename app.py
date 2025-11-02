@@ -218,26 +218,131 @@ with tab1:
 # -------------------------
 # Single Stock
 # -------------------------
-with tab2:
-    st.header("🔎 Single Stock Analysis")
-    use_fmp = st.toggle("Use FMP API", value=bool(FMP_API_KEY))
-    symbol = st.text_input("Enter stock symbol (e.g., RELIANCE, TCS)").upper().strip()
-    if st.button("Analyze Stock") and symbol:
-        info, hist = fetch_fmp_data(symbol) if use_fmp else fetch_info_and_history(symbol)
-        if not info:
-            st.error("No data found.")
-        else:
-            price = safe_get(info, "currentPrice", np.nan)
-            fv = estimate_fair_value(info)
-            rec = rule_based_recommendation(info, fv, price)
-            st.metric("Current Price", price)
-            st.metric("Fair Value", fv)
-            st.metric("Recommendation", rec["recommendation"])
-            st.metric("Score", rec["score"])
-            st.metric("Undervaluation %", rec["undervaluation"])
-            st.write(info)
-            if not hist.empty:
-    st.line_chart(hist.set_index("Date")["Close"], height=250)
+import streamlit as st
+import pandas as pd
+import requests
+from datetime import datetime
+
+# ----------------------------------------------------
+# Load FMP API key securely from Streamlit secrets
+# ----------------------------------------------------
+FMP_API_KEY = st.secrets["FMP_API_KEY"]
+
+# ----------------------------------------------------
+# Page configuration
+# ----------------------------------------------------
+st.set_page_config(
+    page_title="StockMentor - Single Stock Analysis",
+    page_icon="📈",
+    layout="wide"
+)
+
+st.title("📊 StockMentor — Single Stock Analysis")
+st.caption("Powered by Financial Modeling Prep (FMP) API")
+
+# ----------------------------------------------------
+# Data Fetch Functions
+# ----------------------------------------------------
+@st.cache_data(ttl=1200)
+def fetch_info_and_history(symbol):
+    """Fetch company info and last 6 months price history from FMP"""
+    try:
+        # --- Company Info ---
+        info_url = f"https://financialmodelingprep.com/api/v3/profile/{symbol}?apikey={FMP_API_KEY}"
+        info_data = requests.get(info_url).json()
+        if not info_data or isinstance(info_data, dict):
+            return {}, pd.DataFrame()
+        info = info_data[0]
+
+        # --- Historical Prices ---
+        hist_url = f"https://financialmodelingprep.com/api/v3/historical-price-full/{symbol}?serietype=line&timeseries=180&apikey={FMP_API_KEY}"
+        hist_data = requests.get(hist_url).json()
+        if "historical" not in hist_data:
+            return info, pd.DataFrame()
+        hist_df = pd.DataFrame(hist_data["historical"])
+        hist_df["date"] = pd.to_datetime(hist_df["date"])
+        hist_df = hist_df.sort_values("date")
+        hist_df.rename(columns={"close": "Close"}, inplace=True)
+
+        return info, hist_df
+    except Exception as e:
+        st.error(f"❌ Data fetch error: {e}")
+        return {}, pd.DataFrame()
+
+
+@st.cache_data(ttl=1200)
+def fetch_fundamentals(symbol):
+    """Fetch key financial metrics"""
+    try:
+        url = f"https://financialmodelingprep.com/api/v3/key-metrics/{symbol}?limit=1&apikey={FMP_API_KEY}"
+        data = requests.get(url).json()
+        if not data or isinstance(data, dict):
+            return {}
+        return data[0]
+    except Exception as e:
+        st.error(f"❌ Fundamental fetch error: {e}")
+        return {}
+
+# ----------------------------------------------------
+# User Input
+# ----------------------------------------------------
+symbol = st.text_input("🔍 Enter Stock Symbol (e.g. AAPL, TSLA, MSFT, TCS.NS):", "AAPL").upper()
+
+if symbol:
+    with st.spinner("Fetching data from FMP..."):
+        info, hist = fetch_info_and_history(symbol)
+        fundamentals = fetch_fundamentals(symbol)
+
+    # ----------------------------------------------------
+    # Company Info
+    # ----------------------------------------------------
+    if info:
+        st.subheader(f"{info.get('companyName', symbol)} ({info.get('symbol', '')})")
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Current Price", f"${info.get('price', 'N/A')}")
+            st.metric("P/E Ratio", info.get("pe", "N/A"))
+        with col2:
+            st.metric("Market Cap", f"${info.get('mktCap', 0):,}")
+            st.metric("Beta", info.get("beta", "N/A"))
+        with col3:
+            st.metric("Industry", info.get("industry', 'N/A"))
+            st.metric("Exchange", info.get("exchangeShortName', 'N/A"))
+
+        st.markdown(f"[🌐 Visit Website]({info.get('website', '#')})")
+
+    else:
+        st.warning("No company information found for this symbol.")
+
+    # ----------------------------------------------------
+    # Chart
+    # ----------------------------------------------------
+    if not hist.empty:
+        st.write("### 📈 6-Month Price Trend")
+        st.line_chart(hist.set_index("date")["Close"])
+    else:
+        st.warning("No price history available.")
+
+    # ----------------------------------------------------
+    # Fundamentals
+    # ----------------------------------------------------
+    if fundamentals:
+        st.write("### 💡 Key Financial Metrics")
+        metrics_df = pd.DataFrame([
+            ["ROE (TTM)", fundamentals.get("roeTTM", "N/A")],
+            ["ROA (TTM)", fundamentals.get("roaTTM", "N/A")],
+            ["Debt/Equity (TTM)", fundamentals.get("debtToEquityTTM", "N/A")],
+            ["Current Ratio (TTM)", fundamentals.get("currentRatioTTM", "N/A")],
+            ["P/B Ratio (TTM)", fundamentals.get("pbRatioTTM", "N/A")],
+            ["Dividend Yield (TTM)", fundamentals.get("dividendYieldTTM", "N/A")],
+            ["Free Cash Flow Yield (TTM)", fundamentals.get("freeCashFlowYieldTTM", "N/A")]
+        ], columns=["Metric", "Value"])
+        st.dataframe(metrics_df, use_container_width=True)
+    else:
+        st.info("Fundamental data not available for this stock.")
+else:
+    st.info("Enter a stock symbol above to begin.")
+
 
 
 # -------------------------
