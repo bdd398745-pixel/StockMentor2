@@ -1,146 +1,169 @@
 import streamlit as st
 import pandas as pd
 import yfinance as yf
-import smtplib
-from email.mime.text import MIMEText
 from openai import OpenAI
 from datetime import datetime
 
-# === OpenAI client (new API format) ===
+# ==========================
+# CONFIG
+# ==========================
+st.set_page_config(page_title="📈 StockMentor", layout="wide", page_icon="💹")
+st.title("💹 StockMentor – Smart Stock Analyzer")
+st.caption("Live data + AI insights + valuation dashboard")
+
+# Initialize OpenAI client
 client = OpenAI(api_key=st.secrets["OPENAI_API_KEY"])
 
-# === Page Config ===
-st.set_page_config(page_title="StockMentor AI", layout="wide", page_icon="📈")
-
-st.title("📈 StockMentor – Your AI Stock Assistant")
-st.caption("Powered by OpenAI GPT + Yahoo Finance")
-
-# === Load Watchlist ===
+# ==========================
+# LOAD WATCHLIST
+# ==========================
 @st.cache_data
 def load_watchlist():
     try:
-        return pd.read_csv("watchlist.csv")["Symbol"].tolist()
-    except Exception:
+        df = pd.read_csv("watchlist.csv")
+        if "Symbol" in df.columns:
+            return df["Symbol"].tolist()
+        else:
+            return df.iloc[:, 0].tolist()
+    except Exception as e:
+        st.warning(f"⚠️ Could not load watchlist.csv: {e}")
         return ["RELIANCE", "HDFCBANK", "TCS"]
 
 watchlist = load_watchlist()
 
-# === Fetch Stock Data ===
-@st.cache_data(ttl=3600)
+# ==========================
+# FETCH STOCK DATA
+# ==========================
+@st.cache_data(ttl=600)
 def get_stock_data(symbol):
-    data = yf.Ticker(symbol)
-    info = data.info
-    hist = data.history(period="6mo")
-    return info, hist
-
-# === Calculate Fair Value (DCF style simplified) ===
-def fair_value(info):
     try:
+        ticker = yf.Ticker(symbol + ".NS")  # Add .NS for NSE stocks
+        info = ticker.info
+        price = info.get("currentPrice") or info.get("lastPrice") or None
         eps = info.get("trailingEps", 0)
-        growth = info.get("earningsGrowth", 0.1)
-        discount = 0.1
-        intrinsic = eps * (1 + growth) / discount
-        return round(intrinsic, 2)
+        growth = info.get("earningsGrowth", 0.08)
+        pe = info.get("trailingPE", 0)
+        name = info.get("longName", symbol)
+        return {
+            "Name": name,
+            "Symbol": symbol,
+            "LTP": round(price, 2) if price else None,
+            "EPS": eps,
+            "PE": pe,
+            "Growth": growth
+        }
+    except Exception as e:
+        return {"Name": symbol, "Symbol": symbol, "LTP": None, "EPS": None, "PE": None, "Growth": None}
+
+# ==========================
+# FAIR VALUE CALCULATION
+# ==========================
+def calc_fair_value(eps, growth, discount=0.1):
+    try:
+        if eps is None or eps <= 0:
+            return None
+        if growth is None or growth <= 0:
+            growth = 0.08
+        fv = eps * (1 + growth) / (discount - growth/2)
+        return round(fv, 2)
     except Exception:
         return None
 
-# === AI Insight Generator ===
-def ai_analysis(symbol, info):
+# ==========================
+# AI INSIGHT FUNCTION
+# ==========================
+def ai_summary(symbol, data):
     try:
         prompt = f"""
-        Analyze {symbol} stock using the following data:
-        Company Name: {info.get('longName')}
-        Sector: {info.get('sector')}
-        Current Price: {info.get('currentPrice')}
-        Market Cap: {info.get('marketCap')}
-        Forward PE: {info.get('forwardPE')}
-        Beta: {info.get('beta')}
-        Return a short summary with 3 points:
-        1. Investment Outlook
-        2. Risk Factors
-        3. Recommendation (Buy/Hold/Sell)
+        You are a financial analyst. Analyze {symbol} using the following data:
+        EPS: {data.get('EPS')}
+        PE: {data.get('PE')}
+        Growth: {data.get('Growth')}
+        LTP: {data.get('LTP')}
+        Fair Value (approx): {data.get('FairValue')}
+        Give a short, simple summary:
+        - Investment Outlook
+        - Risk Level
+        - Recommendation (Buy/Hold/Sell)
         """
 
         response = client.chat.completions.create(
             model="gpt-4o-mini",
             messages=[{"role": "user", "content": prompt}],
-            max_tokens=200,
+            max_tokens=150,
         )
         return response.choices[0].message.content
     except Exception as e:
-        return f"AI analysis unavailable: {e}"
+        return f"AI summary unavailable: {e}"
 
-# === Email Alert ===
-def send_email_alert(symbol, price, target, recipient):
-    try:
-        msg = MIMEText(f"{symbol} has reached ₹{price}, crossing your target ₹{target}.")
-        msg["Subject"] = f"📢 Stock Alert: {symbol}"
-        msg["From"] = st.secrets["EMAIL_SENDER"]
-        msg["To"] = recipient
+# ==========================
+# MAIN TABS
+# ==========================
+tab1, tab2, tab3 = st.tabs(["📊 Dashboard", "🤖 AI Insights", "⚙️ Settings"])
 
-        with smtplib.SMTP_SSL("smtp.gmail.com", 465) as server:
-            server.login(st.secrets["EMAIL_SENDER"], st.secrets["EMAIL_PASSWORD"])
-            server.send_message(msg)
-        return True
-    except Exception as e:
-        st.warning(f"Email failed: {e}")
-        return False
-
-# === Tabs ===
-tab1, tab2, tab3, tab4 = st.tabs(["📊 Dashboard", "🧠 AI Insights", "🔔 Alerts", "⚙️ Settings"])
-
-# === TAB 1: Dashboard ===
+# ==========================
+# TAB 1 – DASHBOARD
+# ==========================
 with tab1:
-    st.header("Live Watchlist Data")
-    selected = st.selectbox("Select Stock", watchlist)
-    info, hist = get_stock_data(selected)
+    st.header("📊 Watchlist Overview")
+    st.caption("Live market data + fair value comparison")
 
-    col1, col2, col3 = st.columns(3)
-    col1.metric("Current Price", f"₹{info.get('currentPrice', 0)}")
-    col2.metric("52W High", f"₹{info.get('fiftyTwoWeekHigh', 0)}")
-    col3.metric("52W Low", f"₹{info.get('fiftyTwoWeekLow', 0)}")
+    data_list = []
+    for symbol in watchlist:
+        d = get_stock_data(symbol)
+        d["FairValue"] = calc_fair_value(d["EPS"], d["Growth"])
+        if d["LTP"] and d["FairValue"]:
+            d["Valuation Ratio"] = round(d["LTP"] / d["FairValue"], 2)
+        else:
+            d["Valuation Ratio"] = None
+        data_list.append(d)
 
-    fv = fair_value(info)
-    if fv:
-        st.info(f"**Estimated Fair Value:** ₹{fv}")
+    df = pd.DataFrame(data_list)
 
-    st.line_chart(hist["Close"], use_container_width=True)
+    # Color coding for valuation ratio
+    def color_ratio(val):
+        if val is None:
+            return ""
+        if val < 0.9:
+            return "background-color:#b7f7b7"  # Undervalued
+        elif val <= 1.1:
+            return "background-color:#fff6b3"  # Fairly valued
+        else:
+            return "background-color:#ffb3b3"  # Overvalued
 
-# === TAB 2: AI Insights ===
+    st.dataframe(
+        df.style.applymap(color_ratio, subset=["Valuation Ratio"]),
+        use_container_width=True,
+    )
+
+    st.caption("🟢 <0.9 = Undervalued | 🟡 0.9–1.1 = Fair | 🔴 >1.1 = Overvalued")
+
+# ==========================
+# TAB 2 – AI INSIGHTS
+# ==========================
 with tab2:
-    st.header("AI-Powered Analysis")
-    symbol = st.selectbox("Choose stock for AI analysis", watchlist, key="ai_select")
-    info, _ = get_stock_data(symbol)
+    st.header("🤖 AI-Powered Stock Analysis")
+    selected = st.selectbox("Select a stock for AI insights", watchlist)
+    data = [d for d in data_list if d["Symbol"] == selected][0]
     if st.button("Generate AI Insight"):
-        with st.spinner("Analyzing..."):
-            st.write(ai_analysis(symbol, info))
+        with st.spinner("Analyzing via GPT..."):
+            insight = ai_summary(selected, data)
+            st.write(insight)
 
-# === TAB 3: Alerts ===
+# ==========================
+# TAB 3 – SETTINGS
+# ==========================
 with tab3:
-    st.header("Price Alert Notifications")
-    alert_symbol = st.selectbox("Select Stock", watchlist, key="alert_stock")
-    target_price = st.number_input("Target Price (₹)", min_value=1.0, step=1.0)
-    email = st.text_input("Your Email")
+    st.header("⚙️ Manage Watchlist")
+    st.caption("You can add new stock symbols below or manually edit watchlist.csv")
 
-    if st.button("Set Alert"):
-        current_price = yf.Ticker(alert_symbol).info.get("currentPrice", 0)
-        if current_price >= target_price:
-            if send_email_alert(alert_symbol, current_price, target_price, email):
-                st.success("Alert triggered and email sent!")
+    new_symbol = st.text_input("Add stock symbol (e.g., TCS, HDFCBANK)")
+    if st.button("Add to watchlist"):
+        if new_symbol and new_symbol not in watchlist:
+            watchlist.append(new_symbol)
+            pd.DataFrame({"Symbol": watchlist}).to_csv("watchlist.csv", index=False)
+            st.success(f"{new_symbol} added successfully!")
         else:
-            st.info(f"Current ₹{current_price} < Target ₹{target_price}. Will alert later.")
+            st.warning("Symbol already exists or is invalid.")
 
-# === TAB 4: Settings ===
-with tab4:
-    st.header("Manage Watchlist")
-    new_stock = st.text_input("Add a stock symbol (e.g., TCS, INFY)")
-    if st.button("Add to Watchlist"):
-        df = pd.DataFrame(watchlist, columns=["Symbol"])
-        if new_stock not in df["Symbol"].values:
-            df.loc[len(df)] = new_stock
-            df.to_csv("watchlist.csv", index=False)
-            st.success(f"Added {new_stock}!")
-        else:
-            st.warning("Already exists in watchlist.")
-    st.dataframe(pd.DataFrame(watchlist, columns=["Symbol"]))
-    st.caption("You can also directly edit `watchlist.csv` and reload the app.")
+    st.dataframe(pd.DataFrame({"Symbol": watchlist}))
