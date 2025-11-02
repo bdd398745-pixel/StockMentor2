@@ -32,6 +32,10 @@ DISCOUNT_RATE = 0.10
 
 # Load API Key
 FMP_API_KEY = st.secrets.get("FMP_API_KEY", os.getenv("FMP_API_KEY", ""))
+if FMP_API_KEY:
+    st.sidebar.success("✅ FMP key detected")
+else:
+    st.sidebar.error("❌ No FMP key found — using yfinance fallback")
 
 # -------------------------
 # Load Nifty Stock List (Predefined)
