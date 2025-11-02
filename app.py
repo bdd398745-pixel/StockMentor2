@@ -346,19 +346,27 @@ with tab2:
                 except Exception as e:
                     st.warning(f"Unable to render chart: {e}")
 
-                # --- Scorecard ---
+                # --- Scorecard (Safe version) ---
                 st.subheader("⭐ Investment Scorecard")
+                
+                def safe_star(value):
+                    if value is None or (isinstance(value, float) and math.isnan(value)):
+                        return 0
+                    return min(max(value, 0), 5)
+                
                 factors = {
-                    "Quality (ROE)": min(max((roe or 0)/0.25*5, 0), 5),
-                    "Growth": min(max((growth or 0)/0.2*5, 0), 5),
-                    "Valuation": 5 if underval and underval >= 25 else 4 if underval and underval >= 10 else 3 if underval and underval >= 3 else 2,
-                    "Risk (Low better)": 5 if de and de <= 0.5 else 3 if de and de <= 1.5 else 1,
+                    "Quality (ROE)": safe_star((roe or 0) / 0.25 * 5 if roe else 0),
+                    "Growth": safe_star((growth or 0) / 0.2 * 5 if growth else 0),
+                    "Valuation": safe_star(5 if underval and underval >= 25 else 4 if underval and underval >= 10 else 3 if underval and underval >= 3 else 2),
+                    "Risk (Low better)": safe_star(5 if de and de <= 0.5 else 3 if de and de <= 1.5 else 1),
                 }
+                
                 score_df = pd.DataFrame({
-                    "Factor": factors.keys(),
-                    "Stars (out of 5)": [f"{round(v):.0f} ⭐" for v in factors.values()]
+                    "Factor": list(factors.keys()),
+                    "Stars (out of 5)": [f"{int(round(v))} ⭐" for v in factors.values()]
                 })
                 st.table(score_df)
+
 
                 # --- Interpretation ---
                 st.subheader("🧠 Interpretation")
