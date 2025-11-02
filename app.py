@@ -72,59 +72,67 @@ def save_watchlist(symbols):
 # Twelve Data Fetcher (Fixed)
 # -------------------------
 def fetch_twelvedata_data(symbol):
+    """Fetch stock info and 1-year history using Twelve Data API, with safe fallback."""
     try:
+        if not TWELVE_API_KEY:
+            raise Exception("Missing Twelve Data API key")
+
         base = "https://api.twelvedata.com"
-        sym = f"{symbol}.NS"
+        possible_symbols = [f"{symbol}:NS", f"{symbol}:BSE", symbol]
 
-        def safe_json(resp):
-            try:
-                return resp.json()
-            except json.JSONDecodeError:
-                txt = resp.text.strip()
-                if txt.startswith("{") and txt.endswith("}"):
-                    return json.loads(txt)
-                else:
-                    raise Exception("Invalid or HTML response")
+        for sym_try in possible_symbols:
+            quote_url = f"{base}/quote?symbol={sym_try}&apikey={TWELVE_API_KEY}"
+            profile_url = f"{base}/fundamentals?symbol={sym_try}&apikey={TWELVE_API_KEY}"
+            hist_url = f"{base}/time_series?symbol={sym_try}&interval=1day&outputsize=365&apikey={TWELVE_API_KEY}"
 
-        quote_url = f"{base}/quote?symbol={sym}&apikey={TWELVE_API_KEY}"
-        funda_url = f"{base}/fundamentals?symbol={sym}&apikey={TWELVE_API_KEY}"
-        hist_url = f"{base}/time_series?symbol={sym}&interval=1day&outputsize=365&apikey={TWELVE_API_KEY}"
+            # Validate response is JSON
+            def safe_get(url):
+                r = requests.get(url)
+                try:
+                    return r.json()
+                except:
+                    st.info(f"Twelve Data returned HTML for {sym_try}, skipping...")
+                    return {}
 
-        q = safe_json(requests.get(quote_url, timeout=10))
-        f = safe_json(requests.get(funda_url, timeout=10))
-        h = safe_json(requests.get(hist_url, timeout=10))
+            q = safe_get(quote_url)
+            f = safe_get(profile_url)
+            h = safe_get(hist_url)
 
-        if "price" not in q:
-            raise Exception(q.get("message", "No quote data"))
+            if "price" not in q:
+                continue  # Try next format
 
-        info = {
-            "symbol": symbol,
-            "companyName": f.get("name", symbol) if isinstance(f, dict) else symbol,
-            "sector": f.get("sector") if isinstance(f, dict) else None,
-            "industry": f.get("industry") if isinstance(f, dict) else None,
-            "price": float(q.get("price", np.nan)),
-            "trailingPE": float(f.get("valuation_ratios", {}).get("pe_ratio", np.nan)) if isinstance(f, dict) else np.nan,
-            "priceToBook": float(f.get("valuation_ratios", {}).get("pb_ratio", np.nan)) if isinstance(f, dict) else np.nan,
-            "dividendYield": float(f.get("valuation_ratios", {}).get("dividend_yield", np.nan)) if isinstance(f, dict) else np.nan,
-            "eps": float(f.get("earnings_per_share", {}).get("basic_eps", np.nan)) if isinstance(f, dict) else np.nan,
-            "returnOnEquity": float(f.get("profitability", {}).get("roe", np.nan)) if isinstance(f, dict) else np.nan,
-            "debtToEquity": float(f.get("financial_health", {}).get("debt_to_equity", np.nan)) if isinstance(f, dict) else np.nan,
-        }
+            info = {
+                "symbol": symbol,
+                "companyName": f.get("name") if isinstance(f, dict) else symbol,
+                "sector": f.get("sector") if isinstance(f, dict) else None,
+                "industry": f.get("industry") if isinstance(f, dict) else None,
+                "price": float(q.get("price", np.nan)),
+                "trailingPE": float(f.get("valuation_ratios", {}).get("pe_ratio", np.nan)) if isinstance(f, dict) else np.nan,
+                "priceToBook": float(f.get("valuation_ratios", {}).get("pb_ratio", np.nan)) if isinstance(f, dict) else np.nan,
+                "dividendYield": float(f.get("valuation_ratios", {}).get("dividend_yield", np.nan)) if isinstance(f, dict) else np.nan,
+                "eps": float(f.get("earnings_per_share", {}).get("basic_eps", np.nan)) if isinstance(f, dict) else np.nan,
+                "returnOnEquity": float(f.get("profitability", {}).get("roe", np.nan)) if isinstance(f, dict) else np.nan,
+                "debtToEquity": float(f.get("financial_health", {}).get("debt_to_equity", np.nan)) if isinstance(f, dict) else np.nan,
+            }
 
-        if "values" in h:
-            hist = pd.DataFrame(h["values"])
-            hist.rename(columns={"datetime": "Date", "close": "Close"}, inplace=True)
-            hist["Date"] = pd.to_datetime(hist["Date"])
-            hist["Close"] = hist["Close"].astype(float)
-            hist = hist.sort_values("Date")
-        else:
-            hist = pd.DataFrame()
+            # Historical data
+            if "values" in h:
+                hist = pd.DataFrame(h["values"])
+                hist.rename(columns={"datetime": "Date", "close": "Close"}, inplace=True)
+                hist["Date"] = pd.to_datetime(hist["Date"])
+                hist["Close"] = hist["Close"].astype(float)
+                hist = hist.sort_values("Date")
+            else:
+                hist = pd.DataFrame()
 
-        return info, hist
+            return info, hist
+
+        raise Exception("All symbol formats failed or data unavailable")
 
     except Exception as e:
-        st.warning(f"TwelveData fetch failed for {symbol}: {e}")
-        return {}, pd.DataFrame()
+        st.warning(f"TwelveData fetch failed for {symbol}: {e}. Falling back to yfinance...")
+        return fetch_info_and_history(symbol)
+
 
 # -------------------------
 # yfinance fallback
