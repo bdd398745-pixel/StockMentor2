@@ -4,7 +4,7 @@ StockMentor - Rule-based Long-Term Stock Analyst (India)
 - FMP API (optional via Streamlit secrets) with yfinance fallback
 - Tabs: Dashboard, Single Stock, Portfolio, Alerts, Watchlist Editor, Screener
 """
-
+import math
 import streamlit as st
 import pandas as pd
 import numpy as np
@@ -182,50 +182,52 @@ def safe_get(info, key, default=np.nan):
 import numpy as np
 
 def estimate_fair_value(info):
-    """
-    Estimate fair value of a stock based on simple valuation logic.
-    Always returns a tuple: (fair_value, method)
-    """
     try:
-        price = float(info.get("price", np.nan))
-        pe = float(info.get("pe", np.nan))
-        eps = float(info.get("eps", np.nan))
-        pb = float(info.get("pb", np.nan))
-        roe = float(info.get("roeTTM", np.nan))
+        price = float(info.get("price") or info.get("currentPrice") or np.nan)
+        pe = float(info.get("pe") or info.get("trailingPE") or np.nan)
+        eps = float(info.get("eps") or info.get("trailingEps") or np.nan)
+        pb = float(info.get("pb") or info.get("priceToBook") or np.nan)
+        roe = float(info.get("roeTTM") or info.get("returnOnEquity") or np.nan)
 
-        # --- if enough data available, use a simple DCF-like estimate ---
         if not np.isnan(eps) and eps > 0:
-            # assume moderate 10% annual growth and 10% discount
-            fair_value = eps * (1 + 0.10) * 15
-            method = "EPS-based DCF"
-        elif not np.isnan(pb) and not np.isnan(roe):
-            # fall back to P/B * ROE heuristic
-            fair_value = price * (roe / 10 if roe > 0 else 1)
-            method = "ROE-P/B heuristic"
-        elif not np.isnan(pe) and pe > 0:
-            # fallback using sector average PE = 15
+            fair_value = eps * 15
+            method = "EPS-based"
+        elif not np.isnan(pe) and pe > 0 and not np.isnan(price):
             fair_value = (price / pe) * 15
             method = "P/E reversion"
+        elif not np.isnan(pb) and not np.isnan(price):
+            fair_value = pb * price
+            method = "P/B heuristic"
         else:
-            # last resort — return current price as fair value
             fair_value = price
-            method = "No data fallback"
+            method = "fallback"
 
-        return fair_value, method
+        return round(float(fair_value), 2), method
 
     except Exception as e:
-        # if anything goes wrong, still return a safe tuple
-        print(f"Fair value estimation error: {e}")
+        print(f"estimate_fair_value() error: {e}")
         return np.nan, "error"
 
 
 
+
+
+
 def compute_buy_sell(fv, mos=0.25):
-    if fv is None or (isinstance(fv, float) and math.isnan(fv)):
+    """
+    Compute Buy/Sell levels from fair value with a margin of safety (MOS).
+    Returns: (buy_price, sell_price)
+    """
+    try:
+        fv = float(fv)
+        if math.isnan(fv) or fv <= 0:
+            return None, None
+        buy = round(fv * (1 - mos), 2)
+        sell = round(fv * (1 + mos / 1.5), 2)
+        return buy, sell
+    except Exception as e:
+        print(f"compute_buy_sell() error: {e}")
         return None, None
-    buy = round(fv * (1 - mos), 2)
-    sell = round(fv * (1 + mos / 1.5), 2)
-    return buy, sell
 
 
 def rule_based_recommendation(info, fair_value, price):
