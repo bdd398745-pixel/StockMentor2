@@ -490,10 +490,10 @@ with tab5:
 # -------------------------
 # 🧠 Stock Screener
 # -------------------------
-with tab6:
-    tab_screener = st.tabs(["🧠 Stock Screener"])[0]
+#with :
+    #tab_screener = st.tabs(["🧠 Stock Screener"])[0]
 
-with tab_screener:
+with tab6:
     st.header("🧠 Stock Screener — Find Best Stocks Beyond Your Watchlist")
     st.caption("Automatically ranks Indian stocks using your rule-based model (ROE, D/E, growth, valuation).")
 
