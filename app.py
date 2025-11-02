@@ -495,75 +495,108 @@ with tab5:
         else:
             st.error("Save failed: " + msg)
 # -------------------------
-# 🧠 Stock Screener
 # -------------------------
-#with :
-    #tab_screener = st.tabs(["🧠 Stock Screener"])[0]
-
+# TAB 6: 🧠 Stock Screener
+# -------------------------
 with tab6:
     st.header("🧠 Stock Screener — Find Best Stocks Beyond Your Watchlist")
     st.caption("Automatically ranks Indian stocks using your rule-based model (ROE, D/E, growth, valuation).")
 
-    # --- Stock universe selection ---
-    source = st.radio("Choose stock universe", ["NIFTY50", "NIFTY100", "NIFTY500", "Custom List"], horizontal=True)
+    # --- Universe selection ---
+    source = st.radio(
+        "Choose stock universe",
+        ["NIFTY50", "NIFTY100", "NIFTY500", "Custom List"],
+        horizontal=True
+    )
 
     if source == "Custom List":
         custom_symbols = st.text_area("Enter comma-separated stock symbols (e.g. RELIANCE, TCS, HDFCBANK)")
         symbols = [s.strip().upper() for s in custom_symbols.split(",") if s.strip()]
     else:
-        # simple predefined sets (you can later expand using NSE API)
+        # small sample lists; expand as needed or load from file
         indices = {
-            "NIFTY50": ["RELIANCE","TCS","INFY","HDFCBANK","ICICIBANK","ITC","LT","SBIN","BHARTIARTL","KOTAKBANK"],
-            "NIFTY100": ["RELIANCE","TCS","INFY","HDFCBANK","ICICIBANK","ITC","LT","SBIN","SUNPHARMA","ASIANPAINT","AXISBANK","MARUTI","ULTRACEMCO","HINDUNILVR"],
-            "NIFTY500": ["RELIANCE","TCS","INFY","HDFCBANK","ICICIBANK","ITC","LT","SBIN","SUNPHARMA","ASIANPAINT","AXISBANK","MARUTI","ULTRACEMCO","HINDUNILVR","PERSISTENT","CIPLA","NTPC","ONGC","TATASTEEL","JSWSTEEL"]
+            "NIFTY50": [
+                "RELIANCE","TCS","INFY","HDFCBANK","ICICIBANK","ITC","LT","SBIN","BHARTIARTL","KOTAKBANK"
+            ],
+            "NIFTY100": [
+                "RELIANCE","TCS","INFY","HDFCBANK","ICICIBANK","ITC","LT","SBIN","SUNPHARMA","ASIANPAINT",
+                "AXISBANK","MARUTI","ULTRACEMCO","HINDUNILVR"
+            ],
+            "NIFTY500": [
+                "RELIANCE","TCS","INFY","HDFCBANK","ICICIBANK","ITC","LT","SBIN","SUNPHARMA","ASIANPAINT",
+                "AXISBANK","MARUTI","ULTRACEMCO","HINDUNILVR","PERSISTENT","CIPLA","NTPC","ONGC","TATASTEEL","JSWSTEEL"
+            ]
         }
-        symbols = indices[source]
+        symbols = indices.get(source, [])
 
-    st.info(f"Loaded {len(symbols)} stocks for screening.")
+    st.info(f"Loaded {len(symbols)} symbols for screening.")
 
-    if st.button("🚀 Run Screener"):
-        progress = st.progress(0)
-        rows = []
-        for i, sym in enumerate(symbols):
-            info, _ = fetch_info_and_history(sym)
-            if not info or info.get("error"):
-                continue
+    # Filter panel
+    st.markdown("**Filters (optional)**")
+    col_f1, col_f2, col_f3 = st.columns(3)
+    min_roe = col_f1.number_input("Min ROE (%)", value=0.0, step=0.5)
+    max_de = col_f2.number_input("Max Debt/Equity", value=2.0, step=0.1)
+    min_underv = col_f3.number_input("Min Undervaluation %", value=0.0, step=1.0)
 
-            ltp = safe_get(info, "currentPrice", np.nan)
-            fv, _ = estimate_fair_value(info)
-            rec = rule_based_recommendation(info, fv, ltp)
-            buy, sell = compute_buy_sell(fv)
-            cap = rec["market_cap"]
-            cap_weight = 2 if cap and cap > 5e11 else (1 if cap and cap > 1e11 else 0)
-            rank_score = (rec["score"] * 2) + (rec["undervaluation_%"] or 0)/10 + cap_weight
-
-            rows.append({
-                "Symbol": sym,
-                "LTP": ltp,
-                "Fair Value": fv,
-                "Underv%": rec["undervaluation_%"],
-                "Buy Below": buy,
-                "Sell Above": sell,
-                "Rec": rec["recommendation"],
-                "Score": rec["score"],
-                "RankScore": round(rank_score, 2),
-                "Reasons": "; ".join(rec["reasons"])
-            })
-            progress.progress(int(((i+1)/len(symbols))*100))
-            time.sleep(0.1)
-
-        df = pd.DataFrame(rows)
-        if df.empty:
-            st.warning("No valid data found.")
+    run = st.button("🚀 Run Screener")
+    if run:
+        if not symbols:
+            st.warning("No symbols to screen. Choose Custom List or a predefined index.")
         else:
-            df_sorted = df.sort_values(by="RankScore", ascending=False)
-            st.dataframe(df_sorted, use_container_width=True)
-            st.success("✅ Ranked by multi-factor score (Quality + Valuation + Size)")
+            progress = st.progress(0)
+            rows = []
+            for i, sym in enumerate(symbols):
+                info, _ = fetch_info_and_history(sym)
+                # skip when fetching failed
+                if not info or info.get("error"):
+                    progress.progress(int(((i+1)/len(symbols))*100))
+                    continue
 
-            # Top picks summary
-            st.subheader("🏆 Top 5 Picks")
-            st.table(df_sorted.head(5)[["Symbol","Rec","LTP","Fair Value","Underv%", "Buy Below", "Score"]])
+                ltp = safe_get(info, "currentPrice", np.nan)
+                fv, fv_method = estimate_fair_value(info)
+                rec = rule_based_recommendation(info, fv, ltp)
+                buy, sell = compute_buy_sell(fv)
 
-            # Download option
-            csv = df_sorted.to_csv(index=False).encode('utf-8')
-            st.download_button("📥 Download Screener Results", csv, "screener_results.csv", "text/csv")
+                # apply simple filters: skip if fails
+                roe = safe_get(info, "returnOnEquity", np.nan)
+                if roe and abs(roe) > 1:
+                    roe = roe/100.0
+                de = safe_get(info, "debtToEquity", np.nan)
+                underv = rec.get("undervaluation_%")
+                if (not pd.isna(roe) and (roe*100) < min_roe) or (not pd.isna(de) and de > max_de) or (not pd.isna(underv) and underv < min_underv):
+                    progress.progress(int(((i+1)/len(symbols))*100))
+                    continue
+
+                cap = rec.get("market_cap")
+                cap_weight = 2 if cap and cap > 5e11 else (1 if cap and cap > 1e11 else 0)
+                rank_score = (rec["score"] * 2) + ((underv or 0) / 10) + cap_weight
+
+                rows.append({
+                    "Symbol": sym,
+                    "LTP": round(ltp,2) if isinstance(ltp,(int,float)) and not math.isnan(ltp) else np.nan,
+                    "Fair Value": fv,
+                    "Underv%": underv,
+                    "Valuation Method": fv_method,
+                    "Buy Below": buy,
+                    "Sell Above": sell,
+                    "Rec": rec["recommendation"],
+                    "Score": rec["score"],
+                    "RankScore": round(rank_score, 2),
+                    "Reasons": "; ".join(rec.get("reasons", []))
+                })
+                progress.progress(int(((i+1)/len(symbols))*100))
+                time.sleep(0.05)
+
+            df = pd.DataFrame(rows)
+            if df.empty:
+                st.warning("No stocks passed the filters or no valid data found.")
+            else:
+                df_sorted = df.sort_values(by="RankScore", ascending=False).reset_index(drop=True)
+                # Show color hint for top picks
+                st.dataframe(df_sorted, use_container_width=True)
+
+                st.subheader("🏆 Top 5 Picks")
+                st.table(df_sorted.head(5)[["Symbol","Rec","Score","Underv%","Buy Below","Fair Value"]])
+
+                csv = df_sorted.to_csv(index=False).encode("utf-8")
+                st.download_button("📥 Download Screener Results", csv, "screener_results.csv", "text/csv")
