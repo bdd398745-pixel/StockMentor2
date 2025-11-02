@@ -237,12 +237,8 @@ with tab2:
             st.metric("Undervaluation %", rec["undervaluation"])
             st.write(info)
             if not hist.empty:
-    if "Date" not in hist.columns:
-        hist = hist.reset_index()
-    if "Close" in hist.columns and "Date" in hist.columns:
-        st.line_chart(hist.set_index("Date")["Close"], height=250)
-    else:
-        st.warning("⚠️ Historical data unavailable for chart.")
+    st.line_chart(hist.set_index("Date")["Close"], height=250)
+
 
 # -------------------------
 # TAB: Portfolio
