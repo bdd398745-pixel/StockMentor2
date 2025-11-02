@@ -208,8 +208,15 @@ def send_email_smtp(smtp_host, smtp_port, username, password, sender, recipients
 
 # -------------------------
 # UI Tabs
-# -------------------------
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Dashboard", "🔎 Single Stock", "💼 Portfolio", "📣 Alerts", "🧾 Watchlist Editor"])
+
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+    "📋 Dashboard",
+    "🔎 Single Stock",
+    "💼 Portfolio",
+    "📣 Alerts",
+    "🧾 Watchlist Editor",
+    "🧠 Stock Screener"
+])
 
 # -------------------------
 # Dashboard
