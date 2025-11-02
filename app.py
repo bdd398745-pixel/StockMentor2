@@ -490,7 +490,8 @@ with tab5:
 # -------------------------
 # 🧠 Stock Screener
 # -------------------------
-tab_screener = st.tabs(["🧠 Stock Screener"])[0]
+with tab6:
+    tab_screener = st.tabs(["🧠 Stock Screener"])[0]
 
 with tab_screener:
     st.header("🧠 Stock Screener — Find Best Stocks Beyond Your Watchlist")
