@@ -54,18 +54,28 @@ def load_nifty_stocks():
 @st.cache_data
 def load_watchlist():
     try:
-        df = pd.read_csv(WATCHLIST_FILE, header=None)
+        # ✅ Fetch default from GitHub (update this link to your repo)
+        github_url = "https://raw.githubusercontent.com/yourusername/stockmentor-data/main/watchlist.csv"
+        df = pd.read_csv(github_url, header=None)
+        st.info("📦 Loaded default watchlist from GitHub.")
         return df[0].astype(str).str.strip().tolist()
-    except:
-        return []
-
-def save_watchlist(symbols):
-    try:
-        pd.DataFrame(symbols).to_csv(WATCHLIST_FILE, index=False, header=False)
-        load_watchlist.clear()
-        return True, "Saved successfully"
     except Exception as e:
-        return False, str(e)
+        # Fallback to local
+        try:
+            df = pd.read_csv("watchlist.csv", header=None)
+            st.warning("Loaded local watchlist.csv (GitHub failed).")
+            return df[0].astype(str).str.strip().tolist()
+        except:
+            st.error("⚠️ No watchlist found — please add one manually.")
+            return []
+ # -------------------------
+# Watchlist Save
+# -------------------------    
+def save_watchlist(symbols):
+    pd.DataFrame(symbols).to_csv("watchlist.csv", index=False, header=False)
+    load_watchlist.clear()
+    return True, "Saved locally"
+
 
 # -------------------------
 # FMP Fetcher
