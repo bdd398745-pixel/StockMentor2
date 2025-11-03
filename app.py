@@ -4,8 +4,10 @@ StockMentor - Rule-based long-term stock analyst (India)
 - No OpenAI / no external LLMs
 - Uses yfinance for data (free)
 - Loads watchlist.csv (one symbol per line)
-- Tabs: Dashboard, Single Stock, Portfolio, Alerts, Watchlist Editor
+- Tabs: Dashboard, Single Stock, Portfolio, Alerts, Watchlist Editor, RJ Score
 - Rule-based scoring, ranking & recommendation
+
+Author: Biswanath Das
 """
 
 import streamlit as st
@@ -52,7 +54,11 @@ def load_watchlist():
 def save_watchlist(symbols):
     try:
         pd.DataFrame(symbols).to_csv(WATCHLIST_FILE, index=False, header=False)
-        load_watchlist.clear()
+        # try to clear cache so UI picks up new watchlist next run
+        try:
+            load_watchlist.clear()
+        except Exception:
+            pass
         return True, "Saved"
     except Exception as e:
         return False, str(e)
@@ -112,7 +118,7 @@ def estimate_fair_value(info):
 # Buy/Sell price zones
 # -------------------------
 def compute_buy_sell(fair_value, mos=0.30):
-    if not fair_value or math.isnan(fair_value):
+    if fair_value is None or (isinstance(fair_value, float) and math.isnan(fair_value)):
         return None, None
     return round(fair_value * (1 - mos), 2), round(fair_value * (1 + mos/1.5), 2)
 
@@ -142,8 +148,11 @@ def rule_based_recommendation(info, fair_value, current_price):
     market_cap = safe_get(info, "marketCap", np.nan)
 
     underv = None
-    if fair_value and current_price and fair_value > 0:
-        underv = round(((fair_value - current_price) / fair_value) * 100, 2)
+    try:
+        if fair_value and current_price and fair_value > 0:
+            underv = round(((fair_value - current_price) / fair_value) * 100, 2)
+    except Exception:
+        underv = None
 
     # --- 1. Fundamentals (20 pts) ---
     if isinstance(de, (int, float)):
@@ -191,7 +200,6 @@ def rule_based_recommendation(info, fair_value, current_price):
         score += 5; reasons.append("Reasonable PEG (<1.5)")
 
     # --- 5. Momentum (15 pts) ---
-    # (Simplified: check price vs fair value)
     if isinstance(underv, (int, float)):
         if underv >= 25:
             score += 10; reasons.append("Deep undervaluation (>25%)")
@@ -223,6 +231,54 @@ def rule_based_recommendation(info, fair_value, current_price):
         "market_cap": market_cap
     }
 
+# -------------------------
+# RJ Score: Jhunjhunwala-Style Hybrid Scoring
+# -------------------------
+def stock_score(
+    roe, debt_eq, rev_cagr, prof_cagr, pe_ratio, pe_industry,
+    div_yield, promoter_hold,
+    management_quality=3, moat_strength=3, growth_potential=3,
+    market_phase="neutral"
+):
+    """Jhunjhunwala-Style Hybrid Scoring System"""
+    score = 0
+
+    # 1️⃣ Fundamental Strength (max ~75)
+    if roe > 15: score += 15
+    if debt_eq < 1: score += 15
+    if rev_cagr > 10: score += 10
+    if prof_cagr > 10: score += 10
+    if pe_ratio < pe_industry: score += 10
+    if div_yield > 1: score += 5
+    if promoter_hold > 50: score += 10
+
+    # 2️⃣ Qualitative Conviction (scaled 0–30)
+    qualitative = (
+        (management_quality * 4) +
+        (moat_strength * 3) +
+        (growth_potential * 3)
+    )  # max 50 → scaled to 30
+    score += qualitative * 0.6  # 30 max
+
+    # 3️⃣ Market Cycle Adjustment
+    if market_phase == "bull":
+        score += 5
+    elif market_phase == "bear":
+        score -= 5
+
+    # 4️⃣ Cap and label
+    score = max(0, min(100, round(score, 1)))
+
+    if score >= 90:
+        rating = "💎 Strong Buy"
+    elif score >= 75:
+        rating = "✅ Buy"
+    elif score >= 60:
+        rating = "🟨 Hold"
+    else:
+        rating = "🔴 Avoid"
+
+    return {"Score": score, "Rating": rating}
 
 # -------------------------
 # Email sender
@@ -250,7 +306,7 @@ def send_email_smtp(smtp_host, smtp_port, username, password, sender, recipients
 # -------------------------
 # UI Tabs
 # -------------------------
-tab1, tab2, tab3, tab4, tab5 = st.tabs(["📋 Dashboard", "🔎 Single Stock", "💼 Portfolio", "📣 Alerts", "🧾 Watchlist Editor"])
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs(["📋 Dashboard", "🔎 Single Stock", "💼 Portfolio", "📣 Alerts", "🧾 Watchlist Editor", "🏆 RJ Score"])
 
 # -------------------------
 # Dashboard
@@ -284,20 +340,17 @@ with tab1:
                 "Rec": rec["recommendation"],
                 "Score": rec["score"],
                 "RankScore": round(rank_score, 2),
-                "Reasons": "; ".join(rec["reasons"])
+                "Reasons": "; ".join(rec["reasons"]) if rec.get("reasons") else ""
             })
             progress.progress(int(((i+1)/len(watchlist))*100))
+            time.sleep(MOCK_SLEEP)
         df = pd.DataFrame(rows)
         df_sorted = df.sort_values(by="RankScore", ascending=False)
         st.dataframe(df_sorted, use_container_width=True)
         st.success("✅ Ranked by multi-factor score (Quality + Valuation + Size)")
 
 # -------------------------
-# Single Stock, Portfolio, Alerts, Watchlist (same as before)
-# -------------------------
-# (You can retain the same code blocks from your previous version here unchanged)
-# -------------------------
-# TAB: Single Stock
+# Single Stock
 # -------------------------
 with tab2:
     st.header("🔎 Single Stock Detail")
@@ -344,7 +397,7 @@ with tab2:
                 st.info("No historical price data available.")
 
 # -------------------------
-# TAB: Portfolio
+# Portfolio
 # -------------------------
 with tab3:
     st.header("💼 Portfolio Tracker")
@@ -391,7 +444,7 @@ with tab3:
             st.error("Error reading portfolio: " + str(e))
 
 # -------------------------
-# TAB: Alerts (Email)
+# Alerts (Email)
 # -------------------------
 with tab4:
     st.header("📣 Email Alerts (manual send)")
@@ -436,7 +489,7 @@ with tab4:
                     st.error("Failed to send alerts: " + msg)
 
 # -------------------------
-# TAB: Watchlist Editor
+# Watchlist Editor
 # -------------------------
 with tab5:
     st.header("🧾 Watchlist Editor")
@@ -452,8 +505,86 @@ with tab5:
             st.error("Save failed: " + msg)
 
 # -------------------------
+# RJ Score Tab
+# -------------------------
+with tab6:
+    st.header("🏆 RJ Score — Jhunjhunwala-Style Hybrid Stock Scoring System")
+    st.markdown("""
+    **Author:** Biswanath Das (StockMentor)  
+    **Inspired by:** Rakesh Jhunjhunwala’s long-term investing philosophy.  
+    Combines:  
+    1️⃣ *Fundamental Strength* (data-driven)  
+    2️⃣ *Qualitative Conviction* (judgment-based)  
+    3️⃣ *Market Cycle Adjustment* (macro awareness)
+    """)
+
+    watchlist = load_watchlist()
+    if not watchlist:
+        st.info("⚠️ Watchlist empty. Add symbols in Watchlist Editor.")
+    else:
+        with st.expander("Scoring parameters / defaults"):
+            market_phase = st.selectbox("Market Phase", ["neutral", "bull", "bear"], index=0)
+            st.write("Default subjective ratings used for all stocks below. You can change them and re-run scoring.")
+            management_quality = st.slider("Management quality (1-5)", 1, 5, 4)
+            moat_strength = st.slider("Moat strength (1-5)", 1, 5, 3)
+            growth_potential = st.slider("Growth potential (1-5)", 1, 5, 4)
+
+        if st.button("🏁 Run RJ Scoring"):
+            rows = []
+            progress = st.progress(0)
+            for i, sym in enumerate(watchlist):
+                info, _ = fetch_info_and_history(sym)
+                if info.get("error"):
+                    continue
+
+                roe = safe_get(info, "returnOnEquity", np.nan)
+                # normalize ROE: yahoo often gives decimal (0.20) or percent (20)
+                if isinstance(roe, (int, float)):
+                    if abs(roe) <= 3:  # likely decimal, e.g., 0.2
+                        roe_display = round(roe * 100, 2)
+                    else:
+                        roe_display = round(roe, 2)
+                else:
+                    roe_display = np.nan
+
+                debt_eq = safe_get(info, "debtToEquity", np.nan)
+                rev_cagr = safe_get(info, "revenueGrowth", 0) * 100 if safe_get(info, "revenueGrowth") else 0
+                prof_cagr = safe_get(info, "earningsQuarterlyGrowth", 0) * 100 if safe_get(info, "earningsQuarterlyGrowth") else 0
+                pe_ratio = safe_get(info, "trailingPE", DEFAULT_PE_TARGET)
+                pe_industry = safe_get(info, "forwardPE", DEFAULT_PE_TARGET) or DEFAULT_PE_TARGET
+                div_yield = safe_get(info, "dividendYield", 0) * 100 if safe_get(info, "dividendYield") else 0
+                promoter_hold = safe_get(info, "heldPercentInsiders", 0) * 100 if safe_get(info, "heldPercentInsiders") else 0
+
+                result = stock_score(
+                    roe_display or 0, debt_eq or 0, rev_cagr or 0, prof_cagr or 0,
+                    pe_ratio or DEFAULT_PE_TARGET, pe_industry or DEFAULT_PE_TARGET,
+                    div_yield or 0, promoter_hold or 0,
+                    management_quality, moat_strength, growth_potential,
+                    market_phase
+                )
+
+                rows.append({
+                    "Symbol": sym,
+                    "ROE%": roe_display,
+                    "D/E": round(debt_eq or 0, 2),
+                    "Rev CAGR%": round(rev_cagr, 1),
+                    "Profit CAGR%": round(prof_cagr, 1),
+                    "Div Yield%": round(div_yield, 2),
+                    "Promoter%": round(promoter_hold, 1),
+                    "RJ Score": result["Score"],
+                    "Rating": result["Rating"]
+                })
+
+                progress.progress(int(((i + 1) / len(watchlist)) * 100))
+                time.sleep(MOCK_SLEEP)
+
+            df = pd.DataFrame(rows)
+            df_sorted = df.sort_values(by="RJ Score", ascending=False)
+            st.dataframe(df_sorted, use_container_width=True)
+            st.success("✅ RJ-style ranking complete — blending fundamentals with conviction!")
+
+# -------------------------
 # Footer
 # -------------------------
 st.markdown("---")
 st.caption("StockMentor — rule-based long-term stock helper. Data via Yahoo Finance (yfinance).")
-
