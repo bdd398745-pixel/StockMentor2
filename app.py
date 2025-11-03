@@ -120,68 +120,109 @@ def compute_buy_sell(fair_value, mos=0.30):
 # Rule-based recommendation
 # -------------------------
 def rule_based_recommendation(info, fair_value, current_price):
+    """
+    100-point rule-based long-term scoring:
+    Fundamentals, Profitability, Growth, Valuation, Momentum, Safety.
+    """
+    score = 0
+    reasons = []
+
+    # --- Core data ---
     roe = safe_get(info, "returnOnEquity", np.nan)
     if roe and abs(roe) > 1:
         roe /= 100.0
     de = safe_get(info, "debtToEquity", np.nan)
-    earnings_growth = safe_get(info, "earningsQuarterlyGrowth", np.nan)
-    market_cap = safe_get(info, "marketCap", np.nan)
+    cur_ratio = safe_get(info, "currentRatio", np.nan)
     pe = safe_get(info, "trailingPE", np.nan)
+    peg = safe_get(info, "pegRatio", np.nan)
+    net_margin = safe_get(info, "profitMargins", np.nan)
+    eps_growth = safe_get(info, "earningsQuarterlyGrowth", np.nan)
+    sales_growth = safe_get(info, "revenueGrowth", np.nan)
+    beta = safe_get(info, "beta", np.nan)
+    market_cap = safe_get(info, "marketCap", np.nan)
 
-    underval = None
+    underv = None
     if fair_value and current_price and fair_value > 0:
-        underval = round(((fair_value - current_price)/fair_value) * 100, 2)
+        underv = round(((fair_value - current_price) / fair_value) * 100, 2)
 
-    score = 0
-    reasons = []
-
-    # Quality (ROE)
-    if isinstance(roe, (int, float)):
-        if roe >= 0.20:
-            score += 3; reasons.append("High ROE")
-        elif roe >= 0.12:
-            score += 2; reasons.append("Good ROE")
-        elif roe > 0:
-            score += 1; reasons.append("Positive ROE")
-
-    # Debt
+    # --- 1. Fundamentals (20 pts) ---
     if isinstance(de, (int, float)):
-        if de <= 0.5:
-            score += 2; reasons.append("Low D/E")
-        elif de <= 1.5:
-            score += 1; reasons.append("Moderate D/E")
+        if de < 0.5:
+            score += 10; reasons.append("Excellent D/E (<0.5)")
+        elif de < 1:
+            score += 5; reasons.append("Moderate D/E (<1)")
+    if isinstance(cur_ratio, (int, float)):
+        if cur_ratio > 1.5:
+            score += 10; reasons.append("Healthy Current Ratio (>1.5)")
+        elif cur_ratio > 1:
+            score += 5; reasons.append("Moderate Liquidity")
 
-    # Growth
-    if isinstance(earnings_growth, (int, float)):
-        if earnings_growth >= 0.20:
-            score += 2; reasons.append("Strong earnings growth")
-        elif earnings_growth >= 0.05:
-            score += 1; reasons.append("Moderate earnings growth")
+    # --- 2. Profitability (20 pts) ---
+    if isinstance(roe, (int, float)):
+        if roe > 0.18:
+            score += 10; reasons.append("Strong ROE (>18%)")
+        elif roe > 0.12:
+            score += 5; reasons.append("Good ROE (12–18%)")
+    if isinstance(net_margin, (int, float)):
+        if net_margin > 0.15:
+            score += 10; reasons.append("High Profit Margin (>15%)")
+        elif net_margin > 0.08:
+            score += 5; reasons.append("Moderate Profit Margin")
 
-    # Valuation
-    if isinstance(underval, (int, float)):
-        if underval >= 25:
-            score += 3; reasons.append("Deep undervaluation")
-        elif underval >= 10:
-            score += 2; reasons.append("Undervalued")
-        elif underval >= 3:
-            score += 1; reasons.append("Slight undervaluation")
+    # --- 3. Growth (20 pts) ---
+    if isinstance(sales_growth, (int, float)):
+        if sales_growth > 0.10:
+            score += 10; reasons.append("Strong Sales Growth (>10%)")
+        elif sales_growth > 0.05:
+            score += 5; reasons.append("Moderate Sales Growth")
+    if isinstance(eps_growth, (int, float)):
+        if eps_growth > 0.10:
+            score += 10; reasons.append("Strong EPS Growth (>10%)")
+        elif eps_growth > 0.05:
+            score += 5; reasons.append("Moderate EPS Growth")
 
+    # --- 4. Valuation (15 pts) ---
+    if isinstance(pe, (int, float)) and pe > 0:
+        if pe < 20:
+            score += 10; reasons.append("Attractive P/E (<20)")
+        elif pe < 30:
+            score += 5; reasons.append("Fair P/E (<30)")
+    if isinstance(peg, (int, float)) and peg < 1.5:
+        score += 5; reasons.append("Reasonable PEG (<1.5)")
+
+    # --- 5. Momentum (15 pts) ---
+    # (Simplified: check price vs fair value)
+    if isinstance(underv, (int, float)):
+        if underv >= 25:
+            score += 10; reasons.append("Deep undervaluation (>25%)")
+        elif underv >= 10:
+            score += 5; reasons.append("Undervalued (>10%)")
+
+    # --- 6. Safety (10 pts) ---
+    if isinstance(beta, (int, float)):
+        if beta < 1:
+            score += 10; reasons.append("Low Volatility (β<1)")
+        elif beta < 1.2:
+            score += 5; reasons.append("Moderate Volatility")
+
+    # --- Convert to final score ---
+    final_score = min(score, 100)
     rec = "Hold"
-    if score >= 7 and underval >= 10:
+    if final_score >= 85:
         rec = "Strong Buy"
-    elif score >= 5 and underval >= 5:
+    elif final_score >= 70:
         rec = "Buy"
-    elif (isinstance(pe, (int, float)) and pe > 80) or (isinstance(roe, (int, float)) and roe < 0):
+    elif final_score < 55:
         rec = "Avoid"
 
     return {
-        "score": score,
+        "score": final_score,
         "reasons": reasons,
-        "undervaluation_%": underval,
+        "undervaluation_%": underv,
         "recommendation": rec,
         "market_cap": market_cap
     }
+
 
 # -------------------------
 # Email sender
