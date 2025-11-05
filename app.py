@@ -72,38 +72,13 @@ def fetch_info_and_history(symbol_no_suffix):
         ticker = yf.Ticker(symbol)
         info = ticker.info or {}
         hist = ticker.history(period="5y", interval="1d")
-
-        # --- Patch: calculate ROE & D/E manually if missing ---
-        if info.get("returnOnEquity") in (None, "None", "", np.nan) or math.isnan(info.get("returnOnEquity", np.nan)):
-            try:
-                fin = ticker.financials
-                bs = ticker.balance_sheet
-                if not fin.empty and not bs.empty:
-                    if "Net Income" in fin.index and "Total Stockholder Equity" in bs.index:
-                        net_income = fin.loc["Net Income"].iloc[0]
-                        equity = bs.loc["Total Stockholder Equity"].iloc[0]
-                        if equity and equity != 0:
-                            info["returnOnEquity"] = round((net_income / equity) * 100, 2)
-            except Exception:
-                pass
-
-        if info.get("debtToEquity") in (None, "None", "", np.nan) or math.isnan(info.get("debtToEquity", np.nan)):
-            try:
-                bs = ticker.balance_sheet
-                if not bs.empty and "Total Liab" in bs.index and "Total Stockholder Equity" in bs.index:
-                    debt = bs.loc["Total Liab"].iloc[0]
-                    equity = bs.loc["Total Stockholder Equity"].iloc[0]
-                    if equity and equity != 0:
-                        info["debtToEquity"] = round(debt / equity, 2)
-            except Exception:
-                pass
-        # --- End Patch ---
-
         return info, hist
-
     except Exception as e:
         return {"error": str(e)}, pd.DataFrame()
 
+def safe_get(info, key, default=np.nan):
+    v = info.get(key, default)
+    return default if v in (None, "None", "") else v
 
 # -------------------------
 # Fair Value Estimation
