@@ -358,7 +358,21 @@ with tab1:
         rows = []
         progress = st.progress(0)
         for i, sym in enumerate(watchlist):
-            info, _ = fetch_info_and_history(sym) info = enrich_financial_ratios(sym, info)
+            if st.button("Analyze", type="primary"):
+    if not sym:
+        st.warning("Please enter a valid symbol (e.g., RELIANCE.NS)")
+    else:
+        info, _ = fetch_info_and_history(sym)
+        info = enrich_financial_ratios(sym, info)
+        if info:
+            score = calculate_rj_score(info)
+            fair_price = info.get("fairValue", np.nan)
+            st.session_state["single_stock_result"] = {
+                "info": info,
+                "score": score,
+                "fair_price": fair_price,
+            }
+
             if info.get("error"):
                 continue
             ltp = safe_get(info, "currentPrice", np.nan)
