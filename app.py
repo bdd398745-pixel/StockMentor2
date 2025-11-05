@@ -66,15 +66,38 @@ def save_watchlist(symbols):
 # Data fetch
 # -------------------------
 @st.cache_data(ttl=900)
-def fetch_info_and_history(symbol_no_suffix):
+def enrich_financial_ratios(symbol_no_suffix, info):
+    """Compute missing ratios like ROE, D/E if not in info"""
     symbol = f"{symbol_no_suffix}.NS"
     try:
         ticker = yf.Ticker(symbol)
-        info = ticker.info or {}
-        hist = ticker.history(period="5y", interval="1d")
-        return info, hist
-    except Exception as e:
-        return {"error": str(e)}, pd.DataFrame()
+        bs = ticker.balance_sheet
+        fin = ticker.financials
+
+        # Compute ROE
+        if "returnOnEquity" not in info or info["returnOnEquity"] in (None, np.nan):
+            try:
+                net_income = fin.loc["Net Income"].iloc[0] if "Net Income" in fin.index else None
+                equity = bs.loc["Total Stockholder Equity"].iloc[0] if "Total Stockholder Equity" in bs.index else None
+                if equity and equity != 0 and net_income:
+                    info["returnOnEquity"] = net_income / equity
+            except Exception:
+                pass
+
+        # Compute D/E
+        if "debtToEquity" not in info or info["debtToEquity"] in (None, np.nan):
+            try:
+                total_debt = bs.loc["Total Debt"].iloc[0] if "Total Debt" in bs.index else None
+                equity = bs.loc["Total Stockholder Equity"].iloc[0] if "Total Stockholder Equity" in bs.index else None
+                if equity and equity != 0 and total_debt:
+                    info["debtToEquity"] = total_debt / equity
+            except Exception:
+                pass
+
+    except Exception:
+        pass
+    return info
+
 
 def safe_get(info, key, default=np.nan):
     v = info.get(key, default)
@@ -335,7 +358,7 @@ with tab1:
         rows = []
         progress = st.progress(0)
         for i, sym in enumerate(watchlist):
-            info, _ = fetch_info_and_history(sym)
+            info, _ = fetch_info_and_history(sym) info = enrich_financial_ratios(sym, info)
             if info.get("error"):
                 continue
             ltp = safe_get(info, "currentPrice", np.nan)
@@ -427,7 +450,7 @@ with tab3:
                     sym = str(r["symbol"]).strip().upper()
                     buy = float(r["buy_price"])
                     qty = float(r["quantity"])
-                    info, _ = fetch_info_and_history(sym)
+                    info, _ = fetch_info_and_history(sym) info = enrich_financial_ratios(sym, info)
                     ltp = safe_get(info, "currentPrice", np.nan)
                     current_value = round((ltp * qty), 2) if isinstance(ltp,(int,float)) and not math.isnan(ltp) else None
                     invested = round(buy*qty,2)
@@ -473,7 +496,7 @@ with tab4:
             results = []
             wl = load_watchlist()
             for sym in wl:
-                info, _ = fetch_info_and_history(sym)
+                info, _ = fetch_info_and_history(sym) info = enrich_financial_ratios(sym, info)
                 if info.get("error"):
                     continue
                 ltp = safe_get(info, "currentPrice", np.nan)
@@ -537,7 +560,7 @@ with tab6:
             rows = []
             progress = st.progress(0)
             for i, sym in enumerate(watchlist):
-                info, _ = fetch_info_and_history(sym)
+                info, _ = fetch_info_and_history(sym) info = enrich_financial_ratios(sym, info)
                 if info.get("error"):
                     continue
 
