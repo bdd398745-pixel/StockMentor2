@@ -537,32 +537,16 @@ with tab6:
                 if info.get("error"):
                     continue
 
-                # --- ROE (with multiple fallbacks) ---
-roe = safe_get(info, "returnOnEquity", np.nan)
-if not isinstance(roe, (int, float)) or math.isnan(roe):
-    # sometimes appears as 'returnOnAssets' or 'returnOnEquityTTM'
-    roe = safe_get(info, "returnOnEquityTTM", np.nan)
-if not isinstance(roe, (int, float)) or math.isnan(roe):
-    roe = safe_get(info, "returnOnAssets", np.nan) * 2.5  # rough proxy
-
+        roe = safe_get(info, "returnOnEquity", np.nan)
+# normalize ROE: yahoo often gives decimal (0.20) or percent (20)
 if isinstance(roe, (int, float)):
-    if abs(roe) <= 3:  # likely decimal
+    if abs(roe) <= 3:  # likely decimal, e.g., 0.2
         roe_display = round(roe * 100, 2)
     else:
         roe_display = round(roe, 2)
 else:
-    roe_display = 0  # default when missing
+    roe_display = np.nan
 
-# --- Debt/Equity fallback ---
-debt_eq = safe_get(info, "debtToEquity", np.nan)
-if not isinstance(debt_eq, (int, float)) or math.isnan(debt_eq):
-    # try totalDebt and totalAssets if available
-    total_debt = safe_get(info, "totalDebt", np.nan)
-    total_assets = safe_get(info, "totalAssets", np.nan)
-    if isinstance(total_debt, (int, float)) and isinstance(total_assets, (int, float)) and total_assets > 0:
-        debt_eq = total_debt / total_assets
-if not isinstance(debt_eq, (int, float)) or math.isnan(debt_eq):
-    debt_eq = 1.0  # assume moderate leverage if not available
 
 
                 debt_eq = safe_get(info, "debtToEquity", np.nan)
