@@ -7,6 +7,7 @@ StockMentor - Rule-based long-term stock analyst (India)
 - Tabs: Dashboard, Single Stock, Portfolio, Alerts, Watchlist Editor, RJ Score
 - Rule-based scoring, ranking & recommendation
 Author: Biswanath Das
+Updated: added 3-year CAGR financial metrics helper and integrated into UI
 """
 
 import streamlit as st
@@ -81,6 +82,123 @@ def safe_get(info, key, default=np.nan):
     return default if v in (None, "None", "") else v
 
 # -------------------------
+# Financial metrics helper (new)
+# -------------------------
+@st.cache_data(ttl=900)
+def get_financial_metrics(symbol_no_suffix):
+    """Fetches annual financials via ticker.financials and computes 3-year CAGRs for Revenue and Profit.
+    Returns a dict with:
+      - revenue_cagr (3Y %) or None
+      - profit_cagr (3Y %) or None
+      - roe_pct (ROE in % or None)
+      - debt_to_equity (or None)
+      - dividend_yield_pct (or None)
+      - promoter_holding_pct (or None)
+
+    If there are fewer than 4 annual columns in financials, returns revenue_cagr/profit_cagr as None.
+    """
+    symbol = f"{symbol_no_suffix}.NS"
+    try:
+        ticker = yf.Ticker(symbol)
+        fin = ticker.financials  # Annual income statement (columns are years, most recent first)
+        info = ticker.info or {}
+
+        # helpers to find likely revenue/profit rows (index names vary)
+        revenue_keys = [
+            'Total Revenue', 'TotalRevenue', 'Revenue', 'Revenues', 'Total revenues'
+        ]
+        profit_keys = [
+            'Net Income', 'NetIncome', 'Net Income Applicable To Common Shares', 'Net income', 'NetIncomeLoss'
+        ]
+
+        revenue_val = None
+        profit_val = None
+        revenue_cagr = None
+        profit_cagr = None
+
+        if fin is not None and not fin.empty:
+            # columns are typically timestamps (most recent first)
+            cols = list(fin.columns)
+            if len(cols) >= 4:
+                # find revenue row
+                for rk in revenue_keys:
+                    if rk in fin.index:
+                        revenue_row = fin.loc[rk]
+                        break
+                else:
+                    # attempt fuzzy: find first row containing 'reven' (case-insensitive)
+                    matches = [r for r in fin.index if 'reven' in str(r).lower()]
+                    revenue_row = fin.loc[matches[0]] if matches else None
+
+                for pk in profit_keys:
+                    if pk in fin.index:
+                        profit_row = fin.loc[pk]
+                        break
+                else:
+                    matches = [r for r in fin.index if 'net' in str(r).lower() and 'income' in str(r).lower()]
+                    profit_row = fin.loc[matches[0]] if matches else None
+
+                try:
+                    if revenue_row is not None:
+                        latest = revenue_row.iloc[0]
+                        oldest = revenue_row.iloc[3]
+                        if pd.notna(latest) and pd.notna(oldest) and oldest != 0:
+                            revenue_cagr = ((float(latest) / float(oldest)) ** (1.0 / 3.0) - 1.0) * 100.0
+                            revenue_cagr = round(revenue_cagr, 2)
+                except Exception:
+                    revenue_cagr = None
+
+                try:
+                    if profit_row is not None:
+                        latest_p = profit_row.iloc[0]
+                        oldest_p = profit_row.iloc[3]
+                        if pd.notna(latest_p) and pd.notna(oldest_p) and oldest_p != 0:
+                            profit_cagr = ((float(latest_p) / float(oldest_p)) ** (1.0 / 3.0) - 1.0) * 100.0
+                            profit_cagr = round(profit_cagr, 2)
+                except Exception:
+                    profit_cagr = None
+
+        # fallback single value retrieval from info
+        roe = safe_get(info, 'returnOnEquity')
+        roe_pct = None
+        if isinstance(roe, (int, float)):
+            if abs(roe) <= 3:
+                roe_pct = round(roe * 100, 2)
+            else:
+                roe_pct = round(roe, 2)
+
+        debt_eq = safe_get(info, 'debtToEquity', np.nan)
+        div_yield = safe_get(info, 'dividendYield', 0)
+        dividend_yield_pct = None
+        if isinstance(div_yield, (int, float)):
+            dividend_yield_pct = round(div_yield * 100, 2)
+
+        promoter_hold = safe_get(info, 'heldPercentInsiders', np.nan)
+        promoter_holding_pct = None
+        if isinstance(promoter_hold, (int, float)):
+            promoter_holding_pct = round(promoter_hold * 100, 2)
+
+        return {
+            'revenue_cagr_3y': revenue_cagr,
+            'profit_cagr_3y': profit_cagr,
+            'roe_pct': roe_pct,
+            'debt_to_equity': debt_eq if not pd.isna(debt_eq) else None,
+            'dividend_yield_pct': dividend_yield_pct,
+            'promoter_holding_pct': promoter_holding_pct,
+        }
+
+    except Exception as e:
+        # don't crash UI — return best-effort
+        return {
+            'revenue_cagr_3y': None,
+            'profit_cagr_3y': None,
+            'roe_pct': None,
+            'debt_to_equity': None,
+            'dividend_yield_pct': None,
+            'promoter_holding_pct': None,
+        }
+
+# -------------------------
 # Fair Value Estimation
 # -------------------------
 def estimate_fair_value(info):
@@ -122,11 +240,12 @@ def compute_buy_sell(fair_value, mos=0.30):
     return round(fair_value * (1 - mos), 2), round(fair_value * (1 + mos/1.5), 2)
 
 # -------------------------
-# Rule-based recommendation
+# Rule-based recommendation (updated to use 3Y CAGRs)
 # -------------------------
-def rule_based_recommendation(info, fair_value, current_price):
+def rule_based_recommendation(info, fair_value, current_price, revenue_cagr_3y=None, profit_cagr_3y=None):
     """
     100-point rule-based long-term scoring: Fundamentals, Profitability, Growth, Valuation, Momentum, Safety.
+    Growth uses 3-year CAGRs when available.
     """
     score = 0
     reasons = []
@@ -140,8 +259,6 @@ def rule_based_recommendation(info, fair_value, current_price):
     pe = safe_get(info, "trailingPE", np.nan)
     peg = safe_get(info, "pegRatio", np.nan)
     net_margin = safe_get(info, "profitMargins", np.nan)
-    eps_growth = safe_get(info, "earningsQuarterlyGrowth", np.nan)
-    sales_growth = safe_get(info, "revenueGrowth", np.nan)
     beta = safe_get(info, "beta", np.nan)
     market_cap = safe_get(info, "marketCap", np.nan)
 
@@ -179,17 +296,30 @@ def rule_based_recommendation(info, fair_value, current_price):
             score += 5; reasons.append("Moderate Profit Margin")
 
     # --- 3. Growth (20 pts) ---
-    if isinstance(sales_growth, (int, float)):
-        if sales_growth > 0.10:
-            score += 10; reasons.append("Strong Sales Growth (>10%)")
-        elif sales_growth > 0.05:
-            score += 5; reasons.append("Moderate Sales Growth")
+    # Use 3Y CAGRs when available; fallback to single-year fields if not
+    if isinstance(revenue_cagr_3y, (int, float)):
+        if revenue_cagr_3y > 10:
+            score += 10; reasons.append("Strong Sales Growth (3Y CAGR >10%)")
+        elif revenue_cagr_3y > 5:
+            score += 5; reasons.append("Moderate Sales Growth (3Y CAGR)")
+    else:
+        sales_growth = safe_get(info, "revenueGrowth", np.nan)
+        if isinstance(sales_growth, (int, float)) and sales_growth > 0.10:
+            score += 10; reasons.append("Strong Sales Growth (single-year)")
+        elif isinstance(sales_growth, (int, float)) and sales_growth > 0.05:
+            score += 5; reasons.append("Moderate Sales Growth (single-year)")
 
-    if isinstance(eps_growth, (int, float)):
-        if eps_growth > 0.10:
-            score += 10; reasons.append("Strong EPS Growth (>10%)")
-        elif eps_growth > 0.05:
-            score += 5; reasons.append("Moderate EPS Growth")
+    if isinstance(profit_cagr_3y, (int, float)):
+        if profit_cagr_3y > 10:
+            score += 10; reasons.append("Strong Profit Growth (3Y CAGR >10%)")
+        elif profit_cagr_3y > 5:
+            score += 5; reasons.append("Moderate Profit Growth (3Y CAGR)")
+    else:
+        eps_growth = safe_get(info, "earningsQuarterlyGrowth", np.nan)
+        if isinstance(eps_growth, (int, float)) and eps_growth > 0.10:
+            score += 10; reasons.append("Strong EPS Growth (single-year)")
+        elif isinstance(eps_growth, (int, float)) and eps_growth > 0.05:
+            score += 5; reasons.append("Moderate EPS Growth (single-year)")
 
     # --- 4. Valuation (15 pts) ---
     if isinstance(pe, (int, float)) and pe > 0:
@@ -340,7 +470,9 @@ with tab1:
                 continue
             ltp = safe_get(info, "currentPrice", np.nan)
             fv, method = estimate_fair_value(info)
-            rec = rule_based_recommendation(info, fv, ltp)
+            # fetch 3y cagr metrics (best-effort)
+            fin_metrics = get_financial_metrics(sym)
+            rec = rule_based_recommendation(info, fv, ltp, fin_metrics.get('revenue_cagr_3y'), fin_metrics.get('profit_cagr_3y'))
             buy, sell = compute_buy_sell(fv)
             cap = rec["market_cap"]
             cap_weight = 2 if cap and cap > 5e11 else (1 if cap and cap > 1e11 else 0)
@@ -378,21 +510,46 @@ with tab2:
         else:
             ltp = safe_get(info, "currentPrice", np.nan)
             fv, method = estimate_fair_value(info)
-            rec = rule_based_recommendation(info, fv, ltp)
+            fin_metrics = get_financial_metrics(sel)
+            rec = rule_based_recommendation(info, fv, ltp, fin_metrics.get('revenue_cagr_3y'), fin_metrics.get('profit_cagr_3y'))
             buy, sell = compute_buy_sell(fv)
             c1, c2, c3 = st.columns(3)
             c1.metric("LTP", f"₹{round(ltp,2) if isinstance(ltp,(int,float)) and not math.isnan(ltp) else '-'}")
             c2.metric("Fair Value", f"₹{fv}" if fv else "-")
             c3.metric("Recommendation", rec.get("recommendation"))
+
             st.write("**Quick fundamentals**")
             fund = {
                 "PE": safe_get(info, "trailingPE"),
                 "EPS (TTM)": safe_get(info, "trailingEps"),
-                "ROE": safe_get(info, "returnOnEquity"),
-                "Debt/Equity": safe_get(info, "debtToEquity"),
+                "ROE%": fin_metrics.get('roe_pct'),
+                "Debt/Equity": fin_metrics.get('debt_to_equity'),
                 "Market Cap": safe_get(info, "marketCap"),
             }
             st.json(fund)
+
+            # New: show the requested table with 3Y CAGRs and other key metrics
+            st.write("**Key metrics (includes 3Y CAGRs)**")
+            table = {
+                'ROE%': fin_metrics.get('roe_pct'),
+                'Debt/Equity': fin_metrics.get('debt_to_equity'),
+                'Revenue CAGR (3Y)%': fin_metrics.get('revenue_cagr_3y'),
+                'Profit CAGR (3Y)%': fin_metrics.get('profit_cagr_3y'),
+                'Dividend Yield%': fin_metrics.get('dividend_yield_pct'),
+                'Promoter Holding%': fin_metrics.get('promoter_holding_pct')
+            }
+            st.table(pd.DataFrame([table]))
+
+            # Optional: small bar chart comparing Revenue vs Profit CAGR
+            if fin_metrics.get('revenue_cagr_3y') is not None or fin_metrics.get('profit_cagr_3y') is not None:
+                st.write('**Revenue vs Profit: 3Y CAGR (visual)**')
+                chart_df = pd.DataFrame({
+                    'Metric': ['Revenue CAGR (3Y)', 'Profit CAGR (3Y)'],
+                    'Value': [fin_metrics.get('revenue_cagr_3y') or 0, fin_metrics.get('profit_cagr_3y') or 0]
+                })
+                # use st.bar_chart for simple visual (keeps code minimal)
+                st.bar_chart(chart_df.set_index('Metric'))
+
             st.write("**Valuation details**")
             st.write(f"- Valuation method: {method}")
             st.write(f"- Buy below: ₹{buy}" if buy else "-")
@@ -541,23 +698,17 @@ with tab6:
                 if info.get("error"):
                     continue
 
-                roe = safe_get(info, "returnOnEquity", np.nan)
-                # normalize ROE: yahoo often gives decimal (0.20) or percent (20)
-                if isinstance(roe, (int, float)):
-                    if abs(roe) <= 3:  # likely decimal, e.g., 0.2
-                        roe_display = round(roe * 100, 2)
-                    else:
-                        roe_display = round(roe, 2)
-                else:
-                    roe_display = np.nan
+                # pull 3Y CAGRs using our helper
+                fin_metrics = get_financial_metrics(sym)
 
-                debt_eq = safe_get(info, "debtToEquity", np.nan)
-                rev_cagr = safe_get(info, "revenueGrowth", 0) * 100 if safe_get(info, "revenueGrowth") else 0
-                prof_cagr = safe_get(info, "earningsQuarterlyGrowth", 0) * 100 if safe_get(info, "earningsQuarterlyGrowth") else 0
+                roe_display = fin_metrics.get('roe_pct') or np.nan
+                debt_eq = fin_metrics.get('debt_to_equity') or 0
+                rev_cagr = fin_metrics.get('revenue_cagr_3y') or 0
+                prof_cagr = fin_metrics.get('profit_cagr_3y') or 0
                 pe_ratio = safe_get(info, "trailingPE", DEFAULT_PE_TARGET)
                 pe_industry = safe_get(info, "forwardPE", DEFAULT_PE_TARGET) or DEFAULT_PE_TARGET
-                div_yield = safe_get(info, "dividendYield", 0) * 100 if safe_get(info, "dividendYield") else 0
-                promoter_hold = safe_get(info, "heldPercentInsiders", 0) * 100 if safe_get(info, "heldPercentInsiders") else 0
+                div_yield = fin_metrics.get('dividend_yield_pct') or 0
+                promoter_hold = fin_metrics.get('promoter_holding_pct') or 0
 
                 result = stock_score(
                     roe_display or 0,
