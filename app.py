@@ -652,7 +652,7 @@ with tab4:
 
 # -------------------------
 # Watchlist Editor
-with tabs[4]:
+with tab5:
     st.header("Watchlist Editor")
     watchlist = load_watchlist()
     new_symbol = st.text_input("Add Symbol (e.g., TCS)").upper()
