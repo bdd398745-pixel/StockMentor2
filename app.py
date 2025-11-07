@@ -499,69 +499,97 @@ with tab1:
 # -------------------------
 # Single Stock
 # -------------------------
-with tab2:
-    st.header("🔎 Single Stock Detail")
-    watchlist = load_watchlist()
-    sel = st.selectbox("Select stock", watchlist) if watchlist else st.text_input("Enter symbol (e.g., RELIANCE)")
-    if sel:
-        info, hist = fetch_info_and_history(sel)
-        if info.get("error"):
-            st.error("Data fetch error: " + info.get("error"))
-        else:
-            ltp = safe_get(info, "currentPrice", np.nan)
-            fv, method = estimate_fair_value(info)
-            fin_metrics = get_financial_metrics(sel)
-            rec = rule_based_recommendation(info, fv, ltp, fin_metrics.get('revenue_cagr_3y'), fin_metrics.get('profit_cagr_3y'))
-            buy, sell = compute_buy_sell(fv)
-            c1, c2, c3 = st.columns(3)
-            c1.metric("LTP", f"₹{round(ltp,2) if isinstance(ltp,(int,float)) and not math.isnan(ltp) else '-'}")
-            c2.metric("Fair Value", f"₹{fv}" if fv else "-")
-            c3.metric("Recommendation", rec.get("recommendation"))
 
-            st.write("**Quick fundamentals**")
-            fund = {
-                "PE": safe_get(info, "trailingPE"),
-                "EPS (TTM)": safe_get(info, "trailingEps"),
-                "ROE%": fin_metrics.get('roe_pct'),
-                "Debt/Equity": fin_metrics.get('debt_to_equity'),
-                "Market Cap": safe_get(info, "marketCap"),
-            }
-            st.json(fund)
+elif tab == "Single Stock":
+    st.header("📈 Single Stock Deep Analysis (RJ Style)")
 
-            # New: show the requested table with 3Y CAGRs and other key metrics
-            st.write("**Key metrics (includes 3Y CAGRs)**")
-            table = {
-                'ROE%': fin_metrics.get('roe_pct'),
-                'Debt/Equity': fin_metrics.get('debt_to_equity'),
-                'Revenue CAGR (3Y)%': fin_metrics.get('revenue_cagr_3y'),
-                'Profit CAGR (3Y)%': fin_metrics.get('profit_cagr_3y'),
-                'Dividend Yield%': fin_metrics.get('dividend_yield_pct'),
-                'Promoter Holding%': fin_metrics.get('promoter_holding_pct')
-            }
-            st.table(pd.DataFrame([table]))
+    ticker = st.text_input("Enter Stock Symbol (e.g., TCS.NS, HDFCBANK.NS, INFY.NS):")
 
-            # Optional: small bar chart comparing Revenue vs Profit CAGR
-            if fin_metrics.get('revenue_cagr_3y') is not None or fin_metrics.get('profit_cagr_3y') is not None:
-                st.write('**Revenue vs Profit: 3Y CAGR (visual)**')
-                chart_df = pd.DataFrame({
-                    'Metric': ['Revenue CAGR (3Y)', 'Profit CAGR (3Y)'],
-                    'Value': [fin_metrics.get('revenue_cagr_3y') or 0, fin_metrics.get('profit_cagr_3y') or 0]
-                })
-                # use st.bar_chart for simple visual (keeps code minimal)
-                st.bar_chart(chart_df.set_index('Metric'))
+    if ticker:
+        stock = yf.Ticker(ticker)
+        info = stock.info
 
-            st.write("**Valuation details**")
-            st.write(f"- Valuation method: {method}")
-            st.write(f"- Buy below: ₹{buy}" if buy else "-")
-            st.write(f"- Sell above: ₹{sell}" if sell else "-")
-            st.write(f"- Undervaluation %: {rec.get('undervaluation_%')}")
-            st.write("**Rule-based reasons**")
-            st.write(", ".join(rec.get("reasons") or []))
-            st.write("**5-year price chart**")
-            if hist is not None and not hist.empty:
-                st.line_chart(hist["Close"])
-            else:
-                st.info("No historical price data available.")
+        # --- BASIC INFO ---
+        st.subheader("🏢 Company Overview")
+        try:
+            st.write(f"**Name:** {info.get('longName', '-')}")
+            st.write(f"**Sector:** {info.get('sector', '-')}")
+            st.write(f"**Industry:** {info.get('industry', '-')}")
+            st.write(f"**Market Cap:** ₹{info.get('marketCap', 0)/1e7:,.2f} Cr")
+            st.write(f"**52 Week Range:** {info.get('fiftyTwoWeekLow', '-'):.2f} - {info.get('fiftyTwoWeekHigh', '-'):.2f}")
+        except Exception:
+            st.warning("Basic company details not available.")
+
+        # --- PRICE CHART (3 YEARS) ---
+        st.subheader("📊 Price Trend (3 Years)")
+        try:
+            data = stock.history(period="3y")
+            st.line_chart(data["Close"])
+        except Exception:
+            st.warning("Unable to fetch price history.")
+
+        # --- KEY FINANCIAL RATIOS ---
+        st.subheader("💰 Key Financial Ratios")
+        ratios = {
+            "Current Price": info.get("currentPrice", "-"),
+            "P/E Ratio": info.get("trailingPE", "-"),
+            "P/B Ratio": info.get("priceToBook", "-"),
+            "ROE (Return on Equity)": f"{info.get('returnOnEquity', 0)*100:.2f}%" if info.get("returnOnEquity") else "-",
+            "ROCE (Return on Capital Employed)": "- (approx.)",
+            "EPS (TTM)": info.get("trailingEps", "-"),
+            "Debt/Equity": f"{info.get('debtToEquity', 0):.2f}" if info.get("debtToEquity") else "-",
+            "Dividend Yield": f"{info.get('dividendYield', 0)*100:.2f}%" if info.get("dividendYield") else "-",
+        }
+        st.dataframe(pd.DataFrame(list(ratios.items()), columns=["Metric", "Value"]), use_container_width=True)
+
+        # --- PROFIT & LOSS TREND (3Y) ---
+        st.subheader("📈 Profit & Loss (3 Years)")
+        try:
+            fin = stock.financials.T
+            fin = fin.tail(3)
+            fin_display = fin[["Total Revenue", "Gross Profit", "Net Income"]]
+            st.bar_chart(fin_display)
+            st.dataframe(fin_display)
+        except Exception:
+            st.warning("P&L data not available.")
+
+        # --- BALANCE SHEET TREND (3Y) ---
+        st.subheader("🏦 Balance Sheet (3 Years)")
+        try:
+            bs = stock.balance_sheet.T
+            bs = bs.tail(3)
+            bs_display = bs[["Total Assets", "Total Liab", "Total Stockholder Equity"]]
+            st.bar_chart(bs_display)
+            st.dataframe(bs_display)
+        except Exception:
+            st.warning("Balance Sheet data not available.")
+
+        # --- CASH FLOW TREND (3Y) ---
+        st.subheader("💧 Cash Flow (3 Years)")
+        try:
+            cf = stock.cashflow.T
+            cf = cf.tail(3)
+            cf_display = cf[["Total Cash From Operating Activities", "Capital Expenditures", "Free Cash Flow"]] \
+                          if "Free Cash Flow" in cf.columns else cf[["Total Cash From Operating Activities", "Capital Expenditures"]]
+            st.bar_chart(cf_display)
+            st.dataframe(cf_display)
+        except Exception:
+            st.warning("Cash Flow data not available.")
+
+        # --- RJ COMMENTARY ---
+        st.subheader("🧠 RJ Style Interpretation")
+        st.markdown("""
+        **How to think like RJ while analyzing this stock:**
+        - **1️⃣ Earnings Power:** Focus on companies with consistent *revenue and profit growth* over 3+ years.
+        - **2️⃣ Capital Efficiency:** ROE > 15% and low Debt/Equity (<0.5) indicate efficient use of money.
+        - **3️⃣ Valuation:** A reasonable P/E (vs. peers and growth rate) means market hasn't overvalued it.
+        - **4️⃣ Cash Flow:** Strong positive operating cash flow = real profit, not accounting profit.
+        - **5️⃣ Moat & Management:** Businesses with clear brand power and visionary leaders create multibaggers.
+        - **6️⃣ Patience:** RJ believed “Money is made by sitting, not trading.” Long-term consistency matters most.
+        """)
+
+        st.success("💎 Tip: Focus on financial trends, not short-term price moves. RJ looked for scalable, simple, and profitable businesses.")
+
 
 # -------------------------
 # Portfolio
