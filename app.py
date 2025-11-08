@@ -497,7 +497,8 @@ with tab1:
         st.success("✅ Ranked by multi-factor score (Quality + Valuation + Size)")
 
 # -------------------------
-# Single Stock
+# -------------------------
+# Single Stock - RJ Style Deep Analysis (Enhanced)
 # -------------------------
 
 with tab2:
@@ -528,10 +529,150 @@ with tab2:
             st.metric("Dividend Yield", f"{info.get('dividendYield', 0)*100:.2f}%")
             st.metric("Promoter Holding", f"{info.get('heldPercentInsiders', 0)*100:.2f}%")
 
-        # Optional: FII/DII Trend placeholder (not available directly in yfinance)
         st.caption("FII/DII trend data not available via yfinance — can be integrated via NSE API later.")
+        st.markdown("---")
+
+        # =====================================================
+        # 📈 FINANCIAL STRENGTH
+        # =====================================================
+        st.subheader("📈 Financial Strength")
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("ROE", f"{info.get('returnOnEquity', 0)*100:.2f}%")
+        with col2:
+            st.metric("ROCE", f"{info.get('returnOnAssets', 0)*100:.2f}%")
+        with col3:
+            st.metric("Debt/Equity", f"{info.get('debtToEquity', 0):.2f}")
+        with col4:
+            st.metric("Interest Coverage", info.get("interestCoverage", "-"))
+
+        # --- CAGR Calculations (3 Years) ---
+        try:
+            fin = stock.financials.T.tail(3)
+            fin_cr = fin / 1e7  # convert to ₹ Crore
+            rev_cagr = ((fin["Total Revenue"].iloc[-1] / fin["Total Revenue"].iloc[0]) ** (1/2) - 1) * 100
+            profit_cagr = ((fin["Net Income"].iloc[-1] / fin["Net Income"].iloc[0]) ** (1/2) - 1) * 100
+        except Exception:
+            rev_cagr = profit_cagr = "-"
+
+        eps_cagr = "-"
+        if info.get("trailingEps") and info.get("forwardEps"):
+            try:
+                eps_cagr = ((info.get("forwardEps") / info.get("trailingEps")) - 1) * 100
+            except Exception:
+                eps_cagr = "-"
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Revenue CAGR (3Y)", f"{'-' if isinstance(rev_cagr, str) else f'{rev_cagr:.2f}%'}")
+        with col2:
+            st.metric("Profit CAGR (3Y)", f"{'-' if isinstance(profit_cagr, str) else f'{profit_cagr:.2f}%'}")
+        with col3:
+            st.metric("EPS CAGR (3Y)", f"{'-' if isinstance(eps_cagr, str) else f'{eps_cagr:.2f}%'}")
 
         st.markdown("---")
+
+        # =====================================================
+        # 💵 PROFITABILITY
+        # =====================================================
+        st.subheader("💵 Profitability")
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Operating Margin", f"{info.get('operatingMargins', 0)*100:.2f}%")
+        with col2:
+            st.metric("Net Profit Margin", f"{info.get('profitMargins', 0)*100:.2f}%")
+        with col3:
+            st.metric("FCF Trend", "↑ Positive" if info.get('freeCashflow', 0) > 0 else "↓ Negative")
+
+        try:
+            fin_display = fin_cr[["Total Revenue", "Gross Profit", "Net Income"]]
+            fin_display.columns = ["Revenue (Cr)", "Gross Profit (Cr)", "Net Income (Cr)"]
+            st.bar_chart(fin_display)
+        except Exception:
+            st.warning("Unable to display Profit Trend chart.")
+        st.markdown("---")
+
+        # =====================================================
+        # 📉 VALUATION SNAPSHOT
+        # =====================================================
+        st.subheader("📉 Valuation Snapshot")
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("P/E vs Industry", info.get("trailingPE", "-"))
+        with col2:
+            st.metric("EV/EBITDA", info.get("enterpriseToEbitda", "-"))
+        with col3:
+            st.metric("Dividend Yield", f"{info.get('dividendYield', 0)*100:.2f}%")
+
+        st.markdown("---")
+
+        # =====================================================
+        # 📊 TREND CHARTS
+        # =====================================================
+        st.subheader("📊 Trend Charts")
+
+        col1, col2 = st.columns(2)
+        with col1:
+            try:
+                fin5 = stock.financials.T.tail(5) / 1e7
+                fin5.columns = [c + " (Cr)" for c in fin5.columns]
+                st.caption("5Y Revenue vs Profit (₹ Cr)")
+                st.line_chart(fin5[["Total Revenue (Cr)", "Net Income (Cr)"]])
+            except Exception:
+                st.warning("Unable to fetch 5Y Revenue & Profit data.")
+
+        with col2:
+            try:
+                roe = info.get('returnOnEquity', 0)*100
+                margin = info.get('profitMargins', 0)*100
+                trend_df = pd.DataFrame({
+                    'Metric': ['ROE', 'Profit Margin'],
+                    'Value': [roe, margin]
+                }).set_index("Metric")
+                st.caption("ROE & Profit Margin Trend")
+                st.bar_chart(trend_df)
+            except Exception:
+                st.warning("Unable to display ROE & Margin trend.")
+
+        st.markdown("---")
+
+        # =====================================================
+        # 🥧 PROMOTER HOLDING PIE
+        # =====================================================
+        st.subheader("🥧 Promoter Holding Breakdown")
+
+        try:
+            promoter = info.get("heldPercentInsiders", 0)*100
+            others = 100 - promoter
+            pie_df = pd.DataFrame({
+                "Category": ["Promoter", "Others"],
+                "Holding %": [promoter, others]
+            })
+            fig, ax = plt.subplots(figsize=(3,3))
+            ax.pie(pie_df["Holding %"], labels=pie_df["Category"], autopct='%1.1f%%', startangle=90)
+            ax.axis('equal')
+            st.pyplot(fig)
+        except Exception:
+            st.warning("Unable to display Promoter Holding pie chart.")
+
+        st.markdown("---")
+
+        # =====================================================
+        # 🧠 RJ STYLE INTERPRETATION
+        # =====================================================
+        st.subheader("🧠 RJ Style Interpretation")
+        st.markdown("""
+        > **Think like RJ (Rakesh Jhunjhunwala):**
+        - Look for **consistent growth** in revenue & profits.
+        - **ROE > 15%** and **low Debt/Equity (<0.5)** indicate quality.
+        - Avoid hype; prefer **cash-generating, scalable businesses**.
+        - “**Money is made by sitting, not trading.**”
+        - A great business can **compound earnings over time** with strong management & moat.
+        """)
+
 
         # =====================================================
         # 📈 FINANCIAL STRENGTH (SECTION 1)
