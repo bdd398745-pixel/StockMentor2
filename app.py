@@ -509,79 +509,170 @@ with tab2:
         stock = yf.Ticker(ticker)
         info = stock.info
 
-        # --- BASIC INFO ---
-        st.subheader("🏢 Company Overview")
-        try:
-            st.write(f"**Name:** {info.get('longName', '-')}")
-            st.write(f"**Sector:** {info.get('sector', '-')}")
-            st.write(f"**Industry:** {info.get('industry', '-')}")
-            st.write(f"**Market Cap:** ₹{info.get('marketCap', 0)/1e7:,.2f} Cr")
-            st.write(f"**52 Week Range:** {info.get('fiftyTwoWeekLow', '-'):.2f} - {info.get('fiftyTwoWeekHigh', '-'):.2f}")
-        except Exception:
-            st.warning("Basic company details not available.")
+        # =====================================================
+        # 📊 OVERVIEW PANEL (TOP)
+        # =====================================================
+        st.subheader("📊 Overview Panel")
 
-        # --- PRICE CHART ---
-        st.subheader("📊 Price Trend (3 Years)")
-        try:
-            data = stock.history(period="3y")
-            st.line_chart(data["Close"])
-        except Exception:
-            st.warning("Unable to fetch price history.")
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("Current Price", f"₹{info.get('currentPrice', 0):,.2f}")
+            st.metric("52W High", f"₹{info.get('fiftyTwoWeekHigh', 0):,.2f}")
+        with col2:
+            st.metric("52W Low", f"₹{info.get('fiftyTwoWeekLow', 0):,.2f}")
+            st.metric("Market Cap", f"₹{info.get('marketCap', 0)/1e7:,.2f} Cr")
+        with col3:
+            st.metric("P/E", info.get("trailingPE", "-"))
+            st.metric("P/B", info.get("priceToBook", "-"))
+        with col4:
+            st.metric("Dividend Yield", f"{info.get('dividendYield', 0)*100:.2f}%")
+            st.metric("Promoter Holding", f"{info.get('heldPercentInsiders', 0)*100:.2f}%")
 
-        # --- FINANCIAL RATIOS ---
-        st.subheader("💰 Key Financial Ratios")
-        ratios = {
-            "Current Price": info.get("currentPrice", "-"),
-            "P/E Ratio": info.get("trailingPE", "-"),
-            "P/B Ratio": info.get("priceToBook", "-"),
-            "ROE (Return on Equity)": f"{info.get('returnOnEquity', 0)*100:.2f}%" if info.get("returnOnEquity") else "-",
-            "Debt/Equity": f"{info.get('debtToEquity', 0):.2f}" if info.get("debtToEquity") else "-",
-            "Dividend Yield": f"{info.get('dividendYield', 0)*100:.2f}%" if info.get("dividendYield") else "-",
-        }
-        st.dataframe(pd.DataFrame(list(ratios.items()), columns=["Metric", "Value"]), use_container_width=True)
+        # Optional: FII/DII Trend placeholder (not available directly in yfinance)
+        st.caption("FII/DII trend data not available via yfinance — can be integrated via NSE API later.")
 
-        # --- PROFIT & LOSS ---
-        st.subheader("📈 Profit & Loss (3 Years)")
+        st.markdown("---")
+
+        # =====================================================
+        # 📈 FINANCIAL STRENGTH (SECTION 1)
+        # =====================================================
+        st.subheader("📈 Financial Strength")
+
+        col1, col2, col3, col4 = st.columns(4)
+        with col1:
+            st.metric("ROE", f"{info.get('returnOnEquity', 0)*100:.2f}%")
+        with col2:
+            st.metric("ROCE", f"{info.get('returnOnAssets', 0)*100:.2f}%")
+        with col3:
+            st.metric("Debt/Equity", f"{info.get('debtToEquity', 0):.2f}")
+        with col4:
+            st.metric("Interest Coverage", info.get("interestCoverage", "-"))
+
+        # --- CAGR Calculations (3 Years) ---
         try:
             fin = stock.financials.T.tail(3)
+            rev_cagr = ((fin["Total Revenue"].iloc[-1] / fin["Total Revenue"].iloc[0]) ** (1/2) - 1) * 100
+            profit_cagr = ((fin["Net Income"].iloc[-1] / fin["Net Income"].iloc[0]) ** (1/2) - 1) * 100
+        except Exception:
+            rev_cagr = profit_cagr = "-"
+
+        eps_cagr = "-"
+        if info.get("trailingEps") and info.get("forwardEps"):
+            try:
+                eps_cagr = ((info.get("forwardEps") / info.get("trailingEps")) - 1) * 100
+            except Exception:
+                eps_cagr = "-"
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Revenue CAGR (3Y)", f"{rev_cagr if rev_cagr=='-' else rev_cagr:.2f}%")
+        with col2:
+            st.metric("Profit CAGR (3Y)", f"{profit_cagr if profit_cagr=='-' else profit_cagr:.2f}%")
+        with col3:
+            st.metric("EPS CAGR (3Y)", f"{eps_cagr if eps_cagr=='-' else eps_cagr:.2f}%")
+
+        st.markdown("---")
+
+        # =====================================================
+        # 💵 PROFITABILITY (SECTION 2)
+        # =====================================================
+        st.subheader("💵 Profitability")
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("Operating Margin", f"{info.get('operatingMargins', 0)*100:.2f}%")
+        with col2:
+            st.metric("Net Profit Margin", f"{info.get('profitMargins', 0)*100:.2f}%")
+        with col3:
+            st.metric("FCF Trend", "↑ Positive" if info.get('freeCashflow', 0) > 0 else "↓ Negative")
+
+        try:
             fin_display = fin[["Total Revenue", "Gross Profit", "Net Income"]]
             st.bar_chart(fin_display)
-            st.dataframe(fin_display)
         except Exception:
-            st.warning("P&L data not available.")
+            st.warning("Unable to display Profit Trend chart.")
 
-        # --- BALANCE SHEET ---
-        st.subheader("🏦 Balance Sheet (3 Years)")
+        st.markdown("---")
+
+        # =====================================================
+        # 📉 VALUATION SNAPSHOT (SECTION 3)
+        # =====================================================
+        st.subheader("📉 Valuation Snapshot")
+
+        col1, col2, col3 = st.columns(3)
+        with col1:
+            st.metric("P/E vs Industry", info.get("trailingPE", "-"))
+        with col2:
+            st.metric("EV/EBITDA", info.get("enterpriseToEbitda", "-"))
+        with col3:
+            st.metric("Dividend Yield", f"{info.get('dividendYield', 0)*100:.2f}%")
+
+        st.markdown("---")
+
+        # =====================================================
+        # 🏗️ GROWTH & FUTURE (SECTION 4)
+        # =====================================================
+        st.subheader("🏗️ Growth & Future Outlook")
+
+        st.markdown("""
+        **Narrative Summary**
+        - **Sector Outlook:** Aligned with India's long-term consumption, infra, or digital themes.
+        - **Management Quality:** Prefer ROE > 15%, low leverage, and consistent performance.
+        - **Business Moat:** Strong brand, distribution, or cost efficiency ensures sustainability.
+        - **Future Drivers:** Expansion plans, new products, margin recovery potential.
+        """)
+
+        st.markdown("---")
+
+        # =====================================================
+        # 📊 SMALL CHARTS (OPTIONAL)
+        # =====================================================
+        st.subheader("📊 Trend Charts")
+
+        # 1️⃣ Revenue vs Profit (5Y)
         try:
-            bs = stock.balance_sheet.T.tail(3)
-            bs_display = bs[["Total Assets", "Total Liab", "Total Stockholder Equity"]]
-            st.bar_chart(bs_display)
-            st.dataframe(bs_display)
+            fin5 = stock.financials.T.tail(5)
+            st.line_chart(fin5[["Total Revenue", "Net Income"]])
         except Exception:
-            st.warning("Balance Sheet data not available.")
+            st.warning("Unable to fetch 5Y Revenue & Profit data.")
 
-        # --- CASH FLOW ---
-        st.subheader("💧 Cash Flow (3 Years)")
+        # 2️⃣ ROE & Margin Trend
         try:
-            cf = stock.cashflow.T.tail(3)
-            if "Free Cash Flow" in cf.columns:
-                cf_display = cf[["Total Cash From Operating Activities", "Capital Expenditures", "Free Cash Flow"]]
-            else:
-                cf_display = cf[["Total Cash From Operating Activities", "Capital Expenditures"]]
-            st.bar_chart(cf_display)
-            st.dataframe(cf_display)
+            roe = info.get('returnOnEquity', 0)*100
+            margin = info.get('profitMargins', 0)*100
+            trend_df = pd.DataFrame({
+                'Metric': ['ROE', 'Profit Margin'],
+                'Value': [roe, margin]
+            })
+            st.bar_chart(trend_df.set_index("Metric"))
         except Exception:
-            st.warning("Cash Flow data not available.")
+            st.warning("Unable to display ROE & Margin trend.")
 
-        # --- RJ COMMENTARY ---
+        # 3️⃣ Promoter Holding (bar)
+        try:
+            promoter_df = pd.DataFrame({
+                "Category": ["Promoter", "Others"],
+                "Holding %": [info.get("heldPercentInsiders", 0)*100, 100 - (info.get("heldPercentInsiders", 0)*100)]
+            }).set_index("Category")
+            st.bar_chart(promoter_df)
+        except Exception:
+            st.warning("Unable to display Promoter Holding chart.")
+
+        st.markdown("---")
+
+        # =====================================================
+        # 🧠 RJ STYLE INTERPRETATION
+        # =====================================================
         st.subheader("🧠 RJ Style Interpretation")
         st.markdown("""
-        **Think like RJ:**
-        - Look for consistent **Revenue and Profit Growth** over 3 years.
-        - **ROE > 15%** and **Low Debt/Equity (<0.5)** = high-quality company.
-        - Avoid hype — prefer **cash-generating scalable businesses**.
-        - “**Money is made by sitting, not trading**.” — RJ
+        > **Think like RJ (Rakesh Jhunjhunwala):**
+        - Look for **consistent growth** in revenue & profits.
+        - **ROE > 15%** and **low Debt/Equity (<0.5)** indicate quality.
+        - Avoid hype; prefer **cash-generating, scalable businesses**.
+        - “**Money is made by sitting, not trading.**”
+        - A great business can **compound earnings over time** with strong management & moat.
         """)
+
 # -------------------------
 # Portfolio
 # -------------------------
