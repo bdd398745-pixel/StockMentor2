@@ -497,8 +497,7 @@ with tab1:
         st.success("✅ Ranked by multi-factor score (Quality + Valuation + Size)")
 
 # -------------------------
-# -------------------------
-# Single Stock - RJ Style Deep Analysis (Enhanced)
+# Single Stock - RJ Style Deep Analysis (Cleaned & Optimized)
 # -------------------------
 
 with tab2:
@@ -511,7 +510,7 @@ with tab2:
         info = stock.info
 
         # =====================================================
-        # 📊 OVERVIEW PANEL (TOP)
+        # 📊 OVERVIEW PANEL
         # =====================================================
         st.subheader("📊 Overview Panel")
 
@@ -547,10 +546,10 @@ with tab2:
         with col4:
             st.metric("Interest Coverage", info.get("interestCoverage", "-"))
 
-        # --- CAGR Calculations (3 Years) ---
+        # CAGR
         try:
             fin = stock.financials.T.tail(3)
-            fin_cr = fin / 1e7  # convert to ₹ Crore
+            fin_cr = fin / 1e7
             rev_cagr = ((fin["Total Revenue"].iloc[-1] / fin["Total Revenue"].iloc[0]) ** (1/2) - 1) * 100
             profit_cagr = ((fin["Net Income"].iloc[-1] / fin["Net Income"].iloc[0]) ** (1/2) - 1) * 100
         except Exception:
@@ -592,6 +591,7 @@ with tab2:
             st.bar_chart(fin_display)
         except Exception:
             st.warning("Unable to display Profit Trend chart.")
+
         st.markdown("---")
 
         # =====================================================
@@ -610,6 +610,35 @@ with tab2:
         st.markdown("---")
 
         # =====================================================
+        # 🥧 PROMOTER HOLDING PIE (Plotly)
+        # =====================================================
+        st.subheader("🥧 Promoter Holding Breakdown")
+
+        try:
+            promoter = info.get("heldPercentInsiders", 0)
+            promoter = float(promoter or 0) * 100
+            others = max(0, 100 - promoter)
+
+            if promoter <= 0:
+                st.info("Promoter holding data not available for this stock.")
+            else:
+                import plotly.express as px
+                pie_df = pd.DataFrame({
+                    "Category": ["Promoter", "Others"],
+                    "Holding %": [promoter, others]
+                })
+                fig = px.pie(pie_df, names="Category", values="Holding %", color="Category",
+                             color_discrete_map={"Promoter": "#2E86C1", "Others": "#AED6F1"},
+                             hole=0.3)
+                fig.update_traces(textinfo="percent+label")
+                fig.update_layout(height=350, title="Shareholding Pattern")
+                st.plotly_chart(fig, use_container_width=True)
+        except Exception as e:
+            st.error(f"Pie chart rendering error: {e}")
+
+        st.markdown("---")
+
+        # =====================================================
         # 📊 TREND CHARTS
         # =====================================================
         st.subheader("📊 Trend Charts")
@@ -623,7 +652,6 @@ with tab2:
                 st.line_chart(fin5[["Total Revenue (Cr)", "Net Income (Cr)"]])
             except Exception:
                 st.warning("Unable to fetch 5Y Revenue & Profit data.")
-
         with col2:
             try:
                 roe = info.get('returnOnEquity', 0)*100
@@ -640,199 +668,18 @@ with tab2:
         st.markdown("---")
 
         # =====================================================
-        # 🥧 PROMOTER HOLDING PIE (Fixed & Tested)
-        # =====================================================
-        st.subheader("🥧 Promoter Holding Breakdown")
-        
-        try:
-            promoter = info.get("heldPercentInsiders", 0)
-            if promoter is None:
-                promoter = 0
-        
-            promoter = float(promoter) * 100
-            others = 100 - promoter
-        
-            if promoter <= 0:
-                st.info("Promoter holding data not available for this stock on Yahoo Finance.")
-            else:
-                pie_df = pd.DataFrame({
-                    "Category": ["Promoter", "Others"],
-                    "Holding %": [promoter, others]
-                })
-        
-                import matplotlib.pyplot as plt
-                fig, ax = plt.subplots(figsize=(3, 3))
-                ax.pie(
-                    pie_df["Holding %"],
-                    labels=pie_df["Category"],
-                    autopct='%1.1f%%',
-                    startangle=90,
-                    colors=['#2E86C1', '#AED6F1']
-                )
-                ax.set_title("Shareholding Pattern", fontsize=10)
-                ax.axis("equal")
-                st.pyplot(fig, clear_figure=True)
-        
-        except Exception as e:
-            st.error(f"Pie chart rendering error: {e}")
-        
-        # 👇👇 VERY IMPORTANT — this must be at the same indentation level as 'try:'
-        st.markdown("---")
-        
-        # =====================================================
         # 🧠 RJ STYLE INTERPRETATION
         # =====================================================
         st.subheader("🧠 RJ Style Interpretation")
         st.markdown("""
-        > **Think like RJ (Rakesh Jhunjhunwala):**
+        > **Think like RJ (Rakesh Jhunjhunwala):**  
         - Look for **consistent growth** in revenue & profits.  
         - **ROE > 15%** and **low Debt/Equity (<0.5)** indicate quality.  
         - Avoid hype; prefer **cash-generating, scalable businesses**.  
         - “**Money is made by sitting, not trading.**”  
-        - A great business can **compound earnings over time** with strong management & moat.  
+        - A great business can **compound earnings** over time with strong management & moat.  
         """)
 
-
-        # =====================================================
-        # 📈 FINANCIAL STRENGTH (SECTION 1)
-        # =====================================================
-        st.subheader("📈 Financial Strength")
-
-        col1, col2, col3, col4 = st.columns(4)
-        with col1:
-            st.metric("ROE", f"{info.get('returnOnEquity', 0)*100:.2f}%")
-        with col2:
-            st.metric("ROCE", f"{info.get('returnOnAssets', 0)*100:.2f}%")
-        with col3:
-            st.metric("Debt/Equity", f"{info.get('debtToEquity', 0):.2f}")
-        with col4:
-            st.metric("Interest Coverage", info.get("interestCoverage", "-"))
-
-        # --- CAGR Calculations (3 Years) ---
-        try:
-            fin = stock.financials.T.tail(3)
-            rev_cagr = ((fin["Total Revenue"].iloc[-1] / fin["Total Revenue"].iloc[0]) ** (1/2) - 1) * 100
-            profit_cagr = ((fin["Net Income"].iloc[-1] / fin["Net Income"].iloc[0]) ** (1/2) - 1) * 100
-        except Exception:
-            rev_cagr = profit_cagr = "-"
-
-        eps_cagr = "-"
-        if info.get("trailingEps") and info.get("forwardEps"):
-            try:
-                eps_cagr = ((info.get("forwardEps") / info.get("trailingEps")) - 1) * 100
-            except Exception:
-                eps_cagr = "-"
-
-                col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Revenue CAGR (3Y)", f"{'-' if isinstance(rev_cagr, str) else f'{rev_cagr:.2f}%'}")
-        with col2:
-            st.metric("Profit CAGR (3Y)", f"{'-' if isinstance(profit_cagr, str) else f'{profit_cagr:.2f}%'}")
-        with col3:
-            st.metric("EPS CAGR (3Y)", f"{'-' if isinstance(eps_cagr, str) else f'{eps_cagr:.2f}%'}")
-
-
-        st.markdown("---")
-
-        # =====================================================
-        # 💵 PROFITABILITY (SECTION 2)
-        # =====================================================
-        st.subheader("💵 Profitability")
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("Operating Margin", f"{info.get('operatingMargins', 0)*100:.2f}%")
-        with col2:
-            st.metric("Net Profit Margin", f"{info.get('profitMargins', 0)*100:.2f}%")
-        with col3:
-            st.metric("FCF Trend", "↑ Positive" if info.get('freeCashflow', 0) > 0 else "↓ Negative")
-
-        try:
-            fin_display = fin[["Total Revenue", "Gross Profit", "Net Income"]]
-            st.bar_chart(fin_display)
-        except Exception:
-            st.warning("Unable to display Profit Trend chart.")
-
-        st.markdown("---")
-
-        # =====================================================
-        # 📉 VALUATION SNAPSHOT (SECTION 3)
-        # =====================================================
-        st.subheader("📉 Valuation Snapshot")
-
-        col1, col2, col3 = st.columns(3)
-        with col1:
-            st.metric("P/E vs Industry", info.get("trailingPE", "-"))
-        with col2:
-            st.metric("EV/EBITDA", info.get("enterpriseToEbitda", "-"))
-        with col3:
-            st.metric("Dividend Yield", f"{info.get('dividendYield', 0)*100:.2f}%")
-
-        st.markdown("---")
-
-        # =====================================================
-        # 🏗️ GROWTH & FUTURE (SECTION 4)
-        # =====================================================
-        st.subheader("🏗️ Growth & Future Outlook")
-
-        st.markdown("""
-        **Narrative Summary**
-        - **Sector Outlook:** Aligned with India's long-term consumption, infra, or digital themes.
-        - **Management Quality:** Prefer ROE > 15%, low leverage, and consistent performance.
-        - **Business Moat:** Strong brand, distribution, or cost efficiency ensures sustainability.
-        - **Future Drivers:** Expansion plans, new products, margin recovery potential.
-        """)
-
-        st.markdown("---")
-
-        # =====================================================
-        # 📊 SMALL CHARTS (OPTIONAL)
-        # =====================================================
-        st.subheader("📊 Trend Charts")
-
-        # 1️⃣ Revenue vs Profit (5Y)
-        try:
-            fin5 = stock.financials.T.tail(5)
-            st.line_chart(fin5[["Total Revenue", "Net Income"]])
-        except Exception:
-            st.warning("Unable to fetch 5Y Revenue & Profit data.")
-
-        # 2️⃣ ROE & Margin Trend
-        try:
-            roe = info.get('returnOnEquity', 0)*100
-            margin = info.get('profitMargins', 0)*100
-            trend_df = pd.DataFrame({
-                'Metric': ['ROE', 'Profit Margin'],
-                'Value': [roe, margin]
-            })
-            st.bar_chart(trend_df.set_index("Metric"))
-        except Exception:
-            st.warning("Unable to display ROE & Margin trend.")
-
-        # 3️⃣ Promoter Holding (bar)
-        try:
-            promoter_df = pd.DataFrame({
-                "Category": ["Promoter", "Others"],
-                "Holding %": [info.get("heldPercentInsiders", 0)*100, 100 - (info.get("heldPercentInsiders", 0)*100)]
-            }).set_index("Category")
-            st.bar_chart(promoter_df)
-        except Exception:
-            st.warning("Unable to display Promoter Holding chart.")
-
-        st.markdown("---")
-
-        # =====================================================
-        # 🧠 RJ STYLE INTERPRETATION
-        # =====================================================
-        st.subheader("🧠 RJ Style Interpretation")
-        st.markdown("""
-        > **Think like RJ (Rakesh Jhunjhunwala):**
-        - Look for **consistent growth** in revenue & profits.
-        - **ROE > 15%** and **low Debt/Equity (<0.5)** indicate quality.
-        - Avoid hype; prefer **cash-generating, scalable businesses**.
-        - “**Money is made by sitting, not trading.**”
-        - A great business can **compound earnings over time** with strong management & moat.
-        """)
 
 # -------------------------
 # Portfolio
