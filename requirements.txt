@@ -3,3 +3,4 @@ pandas
 yfinance
 numpy
 openai>=1.0.0
+matplotlib
