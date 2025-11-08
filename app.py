@@ -640,59 +640,56 @@ with tab2:
         st.markdown("---")
 
         # =====================================================
-# 🥧 PROMOTER HOLDING PIE (Fixed & Tested)
-# =====================================================
-st.subheader("🥧 Promoter Holding Breakdown")
-
-try:
-    promoter = info.get("heldPercentInsiders", 0)
-    if promoter is None:
-        promoter = 0
-
-    promoter = float(promoter) * 100
-    others = 100 - promoter
-
-    if promoter <= 0:
-        st.info("Promoter holding data not available for this stock on Yahoo Finance.")
-    else:
-        pie_df = pd.DataFrame({
-            "Category": ["Promoter", "Others"],
-            "Holding %": [promoter, others]
-        })
-
-        import matplotlib.pyplot as plt
-        fig, ax = plt.subplots(figsize=(3, 3))
-        ax.pie(
-            pie_df["Holding %"],
-            labels=pie_df["Category"],
-            autopct='%1.1f%%',
-            startangle=90,
-            colors=['#2E86C1', '#AED6F1']
-        )
-        ax.set_title("Shareholding Pattern", fontsize=10)
-        ax.axis("equal")
-        st.pyplot(fig, clear_figure=True)
-
-except Exception as e:
-    st.error(f"Pie chart rendering error: {e}")
-
-st.markdown("---")
-
-
-
-
-
+        # 🥧 PROMOTER HOLDING PIE (Fixed & Tested)
+        # =====================================================
+        st.subheader("🥧 Promoter Holding Breakdown")
+        
+        try:
+            promoter = info.get("heldPercentInsiders", 0)
+            if promoter is None:
+                promoter = 0
+        
+            promoter = float(promoter) * 100
+            others = 100 - promoter
+        
+            if promoter <= 0:
+                st.info("Promoter holding data not available for this stock on Yahoo Finance.")
+            else:
+                pie_df = pd.DataFrame({
+                    "Category": ["Promoter", "Others"],
+                    "Holding %": [promoter, others]
+                })
+        
+                import matplotlib.pyplot as plt
+                fig, ax = plt.subplots(figsize=(3, 3))
+                ax.pie(
+                    pie_df["Holding %"],
+                    labels=pie_df["Category"],
+                    autopct='%1.1f%%',
+                    startangle=90,
+                    colors=['#2E86C1', '#AED6F1']
+                )
+                ax.set_title("Shareholding Pattern", fontsize=10)
+                ax.axis("equal")
+                st.pyplot(fig, clear_figure=True)
+        
+        except Exception as e:
+            st.error(f"Pie chart rendering error: {e}")
+        
+        # 👇👇 VERY IMPORTANT — this must be at the same indentation level as 'try:'
+        st.markdown("---")
+        
         # =====================================================
         # 🧠 RJ STYLE INTERPRETATION
         # =====================================================
         st.subheader("🧠 RJ Style Interpretation")
         st.markdown("""
         > **Think like RJ (Rakesh Jhunjhunwala):**
-        - Look for **consistent growth** in revenue & profits.
-        - **ROE > 15%** and **low Debt/Equity (<0.5)** indicate quality.
-        - Avoid hype; prefer **cash-generating, scalable businesses**.
-        - “**Money is made by sitting, not trading.**”
-        - A great business can **compound earnings over time** with strong management & moat.
+        - Look for **consistent growth** in revenue & profits.  
+        - **ROE > 15%** and **low Debt/Equity (<0.5)** indicate quality.  
+        - Avoid hype; prefer **cash-generating, scalable businesses**.  
+        - “**Money is made by sitting, not trading.**”  
+        - A great business can **compound earnings over time** with strong management & moat.  
         """)
 
 
