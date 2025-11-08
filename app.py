@@ -660,7 +660,6 @@ try:
             "Holding %": [promoter, others]
         })
 
-        # Use Matplotlib safely
         import matplotlib.pyplot as plt
         fig, ax = plt.subplots(figsize=(3, 3))
         ax.pie(
@@ -676,6 +675,11 @@ try:
 
 except Exception as e:
     st.error(f"Pie chart rendering error: {e}")
+
+st.markdown("---")
+
+
+
 
 
         # =====================================================
