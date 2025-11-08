@@ -563,13 +563,14 @@ with tab2:
             except Exception:
                 eps_cagr = "-"
 
-        col1, col2, col3 = st.columns(3)
+                col1, col2, col3 = st.columns(3)
         with col1:
-            st.metric("Revenue CAGR (3Y)", f"{rev_cagr if rev_cagr=='-' else rev_cagr:.2f}%")
+            st.metric("Revenue CAGR (3Y)", f"{'-' if isinstance(rev_cagr, str) else f'{rev_cagr:.2f}%'}")
         with col2:
-            st.metric("Profit CAGR (3Y)", f"{profit_cagr if profit_cagr=='-' else profit_cagr:.2f}%")
+            st.metric("Profit CAGR (3Y)", f"{'-' if isinstance(profit_cagr, str) else f'{profit_cagr:.2f}%'}")
         with col3:
-            st.metric("EPS CAGR (3Y)", f"{eps_cagr if eps_cagr=='-' else eps_cagr:.2f}%")
+            st.metric("EPS CAGR (3Y)", f"{'-' if isinstance(eps_cagr, str) else f'{eps_cagr:.2f}%'}")
+
 
         st.markdown("---")
 
