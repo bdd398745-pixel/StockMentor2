@@ -770,31 +770,19 @@ with tab4:
 
 # -------------------------
 # Watchlist Editor
+# -------------------------
 with tab5:
-    st.header("Watchlist Editor")
-    watchlist = load_watchlist()
-    new_symbol = st.text_input("Add Symbol (e.g., TCS)").upper()
-
-    if st.button("Add to Watchlist"):
-        if new_symbol and new_symbol not in watchlist:
-            watchlist.append(new_symbol)
-            save_watchlist(watchlist)
-            st.success(f"{new_symbol} added!")
+    st.header("🧾 Watchlist Editor")
+    st.write("Edit your watchlist (one symbol per line). Use NSE tickers (without .NS).")
+    current = load_watchlist()
+    new_txt = st.text_area("Watchlist", value="\n".join(current), height=300)
+    if st.button("💾 Save watchlist"):
+        new_list = [s.strip().upper() for s in new_txt.splitlines() if s.strip()]
+        ok, msg = save_watchlist(new_list)
+        if ok:
+            st.success("Watchlist saved. Reload Dashboard to analyze.")
         else:
-            st.warning("Symbol already in list or invalid.")
-
-    if watchlist:
-        st.write("### Current Watchlist")
-        st.dataframe(pd.DataFrame({"Symbol": watchlist}))
-
-        remove = st.text_input("Remove Symbol").upper()
-        if st.button("Remove"):
-            if remove in watchlist:
-                watchlist.remove(remove)
-                save_watchlist(watchlist)
-                st.success(f"{remove} removed!")
-            else:
-                st.warning("Symbol not found.")
+            st.error("Save failed: " + msg)
 
 
 # -------------------------
