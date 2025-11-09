@@ -86,30 +86,33 @@ def safe_get(info, key, default=np.nan):
 # -------------------------
 
 def safe_cagr_from_series(series):
-    """
-    Compute CAGR from a pandas Series where index is chronological (older -> newer) or will be sorted.
-    Returns CAGR in percent (float) rounded to 2 decimals or None if cannot compute.
+    """Compute realistic CAGR from a pandas Series (oldest → newest).
+    Returns None if data is insufficient or base year too small.
     """
     try:
-        s = series.dropna().astype(float)
-        if s.empty or len(s) < 2:
+        series = series.dropna().astype(float)
+        if len(series) < 3:  # Need at least 3 years (2 intervals)
             return None
-        # if index is datelike, sort by index; otherwise preserve order but sort_index is safe
-        try:
-            s.index = pd.to_datetime(s.index)
-            s = s.sort_index()
-        except Exception:
-            # non-datetime index: keep order but attempt to ensure oldest->newest by not reversing
-            pass
-        start = float(s.iloc[0])
-        end = float(s.iloc[-1])
-        periods = len(s) - 1
-        if start <= 0 or periods <= 0:
+        series = series.sort_index()
+        start, end = series.iloc[0], series.iloc[-1]
+        if start <= 0 or end <= 0:
             return None
-        cagr = (end / start) ** (1.0 / periods) - 1.0
-        return round(cagr * 100.0, 2)
+
+        # Filter out 'new company' or abnormal base effect
+        if end / start > 100 and start < 1e7:  # base too small (<1 Cr)
+            return None
+
+        n = len(series) - 1
+        cagr = ((end / start) ** (1 / n) - 1) * 100
+
+        # Cap unrealistic growths
+        if cagr > 100 or cagr < -50:
+            return None
+
+        return round(cagr, 2)
     except Exception:
         return None
+
 
 
 # -------------------------
