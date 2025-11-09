@@ -796,6 +796,7 @@ with tab5:
             else:
                 st.warning("Symbol not found.")
 
+
 # -------------------------
 # RJ Score Tab
 # -------------------------
