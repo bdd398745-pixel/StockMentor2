@@ -21,7 +21,7 @@ from datetime import datetime
 # -------------------------
 # Config / API key
 # -------------------------
-ALPHA_VANTAGE_KEY = "YOUR_ALPHA_VANTAGE_KEY"  # <-- replace with your key or load from env
+ALPHA_VANTAGE_KEY = "4VGPC0X8LHDXAIIC"  # <-- replace with your key or load from env
 AV_BASE = "https://www.alphavantage.co/query"
 WATCHLIST_FILE = "watchlist.csv"
 DEFAULT_PE_TARGET = 20.0
