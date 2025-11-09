@@ -86,9 +86,7 @@ def safe_get(info, key, default=np.nan):
 # -------------------------
 
 def safe_cagr_from_series(series):
-    """Compute realistic CAGR from a pandas Series (oldest → newest).
-    Returns None if data is insufficient or base year too small.
-    """
+    """Compute realistic CAGR from a pandas Series (oldest → newest)."""
     try:
         series = series.dropna().astype(float)
         if len(series) < 3:  # Need at least 3 years (2 intervals)
@@ -98,20 +96,21 @@ def safe_cagr_from_series(series):
         if start <= 0 or end <= 0:
             return None
 
-        # Filter out 'new company' or abnormal base effect
-        if end / start > 100 and start < 1e7:  # base too small (<1 Cr)
+        # Ignore cases where base year is too tiny vs. final year (IPO/new company)
+        if end / start > 100 and start < 1e7:
             return None
 
         n = len(series) - 1
         cagr = ((end / start) ** (1 / n) - 1) * 100
 
-        # Cap unrealistic growths
+        # Cap unrealistic growth
         if cagr > 100 or cagr < -50:
             return None
 
         return round(cagr, 2)
     except Exception:
         return None
+
 
 
 
@@ -790,80 +789,91 @@ with tab5:
 # -------------------------
 # RJ Score Tab (corrected)
 # -------------------------
-with tab6:
-    st.header("🏆 RJ Score — Jhunjhunwala-Style Hybrid Stock Scoring System")
-    st.markdown("""
-    **Author:** Biswanath Das (StockMentor)
-    **Inspired by:** Rakesh Jhunjhunwala’s long-term investing philosophy.
-    Combines:
-    1️⃣ *Fundamental Strength* (data-driven)
-    2️⃣ *Qualitative Conviction* (judgment-based)
-    3️⃣ *Market Cycle Adjustment* (macro awareness)
-    """)
-    watchlist = load_watchlist()
-    if not watchlist:
-        st.info("⚠️ Watchlist empty. Add symbols in Watchlist Editor.")
-    else:
-        with st.expander("Scoring parameters / defaults"):
-            market_phase = st.selectbox("Market Phase", ["neutral", "bull", "bear"], index=0)
-            st.write("Default subjective ratings used for all stocks below. You can change them and re-run scoring.")
-            management_quality = st.slider("Management quality (1-5)", 1, 5, 4)
-            moat_strength = st.slider("Moat strength (1-5)", 1, 5, 3)
-            growth_potential = st.slider("Growth potential (1-5)", 1, 5, 4)
 
-        if st.button("🏁 Run RJ Scoring"):
-            rows = []
-            progress = st.progress(0)
-            for i, sym in enumerate(watchlist):
-                info, _ = fetch_info_and_history(sym)
-                if info.get("error"):
+   elif tab == "RJ Score":
+    st.header("RJ Score 📊")
+
+    if watchlist.empty:
+        st.warning("Please add symbols to your watchlist first.")
+    else:
+        results = []
+
+        # Loop through all tickers in watchlist
+        for symbol in watchlist["Symbol"]:
+            try:
+                stock = yf.Ticker(symbol)
+                info = stock.info
+                fin = stock.financials
+
+                if fin is None or fin.empty:
                     continue
 
-                fin_metrics = get_financial_metrics(sym)
+                fin = fin.T.sort_index()  # years in chronological order
 
-                roe_display = fin_metrics.get('roe_pct') or 0
-                debt_eq = fin_metrics.get('debt_to_equity') or 0
-                rev_cagr = fin_metrics.get('revenue_cagr_pct') or 0
-                prof_cagr = fin_metrics.get('profit_cagr_pct') or 0
-                pe_ratio = safe_get(info, "trailingPE", DEFAULT_PE_TARGET) or DEFAULT_PE_TARGET
-                pe_industry = safe_get(info, "forwardPE", DEFAULT_PE_TARGET) or DEFAULT_PE_TARGET
-                div_yield = fin_metrics.get('dividend_yield_pct') or 0
-                promoter_hold = fin_metrics.get('promoter_holding_pct') or 0
+                # --- Identify revenue and profit rows dynamically ---
+                def find_col_like(df, patterns):
+                    for p in patterns:
+                        for c in df.columns:
+                            if p.lower() in c.lower():
+                                return c
+                    return None
 
-                result = stock_score(
-                    roe_display or 0,
-                    debt_eq or 0,
-                    rev_cagr or 0,
-                    prof_cagr or 0,
-                    pe_ratio or DEFAULT_PE_TARGET,
-                    pe_industry or DEFAULT_PE_TARGET,
-                    div_yield or 0,
-                    promoter_hold or 0,
-                    management_quality,
-                    moat_strength,
-                    growth_potential,
-                    market_phase
-                )
+                revenue_col = find_col_like(fin, ["total revenue", "revenue"])
+                profit_col = find_col_like(fin, ["net income", "profit"])
 
-                rows.append({
-                    "Symbol": sym,
-                    "ROE%": roe_display,
-                    "D/E": round(debt_eq or 0, 2),
-                    "Rev CAGR%": (round(rev_cagr, 1) if rev_cagr is not None else "-"),
-                    "Profit CAGR%": (round(prof_cagr, 1) if prof_cagr is not None else "-"),
-                    "Div Yield%": round(div_yield, 2),
-                    "Promoter%": round(promoter_hold, 1),
-                    "RJ Score": result["Score"],
-                    "Rating": result["Rating"]
+                # Skip if key columns not found
+                if not revenue_col or not profit_col:
+                    continue
+
+                rev_series = fin[revenue_col]
+                profit_series = fin[profit_col]
+
+                # --- Compute robust CAGR using shared safe function ---
+                rev_cagr = safe_cagr_from_series(rev_series)
+                profit_cagr = safe_cagr_from_series(profit_series)
+
+                # --- Collect key metrics ---
+                roe = info.get("returnOnEquity", None)
+                pe = info.get("trailingPE", None)
+                pb = info.get("priceToBook", None)
+                debt_eq = info.get("debtToEquity", None)
+
+                # --- RJ-style score calculation (simple example) ---
+                score = 0
+                if rev_cagr and rev_cagr > 10:
+                    score += 2
+                if profit_cagr and profit_cagr > 12:
+                    score += 2
+                if roe and roe > 0.15:
+                    score += 2
+                if pe and pe < 30:
+                    score += 2
+                if debt_eq and debt_eq < 1:
+                    score += 2
+
+                results.append({
+                    "Symbol": symbol,
+                    "Revenue CAGR%": rev_cagr if rev_cagr is not None else "-",
+                    "Profit CAGR%": profit_cagr if profit_cagr is not None else "-",
+                    "ROE": round(roe * 100, 2) if roe else "-",
+                    "P/E": round(pe, 2) if pe else "-",
+                    "P/B": round(pb, 2) if pb else "-",
+                    "Debt/Equity": round(debt_eq, 2) if debt_eq else "-",
+                    "RJ Score": score,
                 })
 
-                progress.progress(int(((i + 1) / len(watchlist)) * 100))
-                time.sleep(MOCK_SLEEP)
+            except Exception as e:
+                st.write(f"⚠️ Skipped {symbol}: {e}")
+                continue
 
-            df = pd.DataFrame(rows)
-            df_sorted = df.sort_values(by="RJ Score", ascending=False)
-            st.dataframe(df_sorted, use_container_width=True)
-            st.success("✅ RJ-style ranking complete — blending fundamentals with conviction!")
+        # --- Display Results ---
+        if results:
+            df_rj = pd.DataFrame(results)
+            df_rj = df_rj.sort_values(by="RJ Score", ascending=False).reset_index(drop=True)
+            st.dataframe(df_rj, use_container_width=True)
+        else:
+            st.info("No valid financial data available.")
+
 
 # -------------------------
 # Footer
